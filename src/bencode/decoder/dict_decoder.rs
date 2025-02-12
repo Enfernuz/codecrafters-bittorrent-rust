@@ -1,10 +1,10 @@
-use std::rc::Rc;
+use std::{collections::BTreeMap, rc::Rc};
 
 use crate::{bytestring_decoder, types::DataType};
 
 use super::DecodeError;
 
-pub fn decode_dict(bencoded: &[u8]) -> Result<(Rc<[(String, DataType)]>, usize), DecodeError> {
+pub fn decode_dict(bencoded: &[u8]) -> Result<(BTreeMap<String, DataType>, usize), DecodeError> {
     //dbg!("decode_dict: {:?}", bencoded);
 
     if let [start, ..] = bencoded {
@@ -15,7 +15,7 @@ pub fn decode_dict(bencoded: &[u8]) -> Result<(Rc<[(String, DataType)]>, usize),
             )))?
         }
 
-        let mut decoded_elements: Vec<(String, DataType)> = vec![];
+        let mut dict: BTreeMap<String, DataType> = BTreeMap::new();
         let mut pos: usize = 1;
         let mut end_of_dict_found = false;
         while pos < bencoded.len() {
@@ -32,7 +32,7 @@ pub fn decode_dict(bencoded: &[u8]) -> Result<(Rc<[(String, DataType)]>, usize),
                     pos += key_bytes_processed;
                     let (value, value_bytes_processed) = super::decode(&bencoded[pos..]).map_err(|err| DecodeError::new(&format!("Invalid byte at position {pos}: {}", err.get_message())))?;
                     pos += value_bytes_processed;
-                    decoded_elements.push((key_str, value));
+                    dict.insert(key_str, value);
                 },
                 other => return Err(DecodeError::new(&format!("Unexpected byte value '{other}' (ASCII: '{}') at position {pos}: bencoded dict keys must be bencoded strings beginning with a number (consisting of numeric characters from 0 to 9) indicating the length of the bencoded string and preceeding a colon character (':').", other as char))),
             }
@@ -42,7 +42,7 @@ pub fn decode_dict(bencoded: &[u8]) -> Result<(Rc<[(String, DataType)]>, usize),
             Err(DecodeError::new("End of dict ('e') not found.".into()))?
         }
 
-        Ok((decoded_elements.into(), pos))
+        Ok((dict, pos))
     } else {
         Err(DecodeError::new("The input is empty."))?
     }
@@ -65,21 +65,22 @@ mod tests {
     fn test_dict_number() {
         let (result, bytes_processed) = decode_dict("d5:helloi123ee".as_bytes()).unwrap();
         assert_eq!(bytes_processed, 14);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], ("hello".into(), DataType::Integer(123)));
+        assert_eq!(
+            result,
+            BTreeMap::from_iter([("hello".into(), DataType::Integer(123))])
+        );
     }
 
     #[test]
     fn test_dict_string() {
         let (result, bytes_processed) = decode_dict("d5:hello8:usernamee".as_bytes()).unwrap();
         assert_eq!(bytes_processed, 19);
-        assert_eq!(result.len(), 1);
         assert_eq!(
-            result[0],
-            (
+            result,
+            BTreeMap::from_iter([(
                 "hello".into(),
                 DataType::ByteString(ByteString::new(&"username".as_bytes().into()))
-            )
+            )])
         );
     }
 
@@ -88,16 +89,15 @@ mod tests {
         let (result, bytes_processed) =
             decode_dict("d5:worldl4:Asia6:Europeee".as_bytes()).unwrap();
         assert_eq!(bytes_processed, 25);
-        assert_eq!(result.len(), 1);
         assert_eq!(
-            result[0],
-            (
+            result,
+            BTreeMap::from_iter([(
                 "world".into(),
                 DataType::List(vec![
                     DataType::ByteString(ByteString::new(&"Asia".as_bytes().into())),
                     DataType::ByteString(ByteString::new(&"Europe".as_bytes().into())),
                 ])
-            )
+            )])
         );
     }
 
@@ -106,15 +106,16 @@ mod tests {
         let (result, bytes_processed) =
             decode_dict("d5:hello8:username3:agei42ee".as_bytes()).unwrap();
         assert_eq!(bytes_processed, 28);
-        assert_eq!(result.len(), 2);
         assert_eq!(
-            result[0],
-            (
-                "hello".into(),
-                DataType::ByteString(ByteString::new(&"username".as_bytes().into()))
-            )
+            result,
+            BTreeMap::from_iter([
+                (
+                    "hello".into(),
+                    DataType::ByteString(ByteString::new(&"username".as_bytes().into()))
+                ),
+                ("age".into(), DataType::Integer(42))
+            ])
         );
-        assert_eq!(result[1], ("age".into(), DataType::Integer(42)));
     }
 
     #[test]
@@ -123,24 +124,22 @@ mod tests {
             // hello: username, age: 42, passwords: [abc, 12345]
             decode_dict("d5:hello8:username3:agei42e9:passwordsl3:abci12345eee".as_bytes()).unwrap();
         assert_eq!(bytes_processed, 53);
-        assert_eq!(result.len(), 3);
         assert_eq!(
-            result[0],
-            (
-                "hello".into(),
-                DataType::ByteString(ByteString::new(&"username".as_bytes().into()))
-            )
-        );
-        assert_eq!(result[1], ("age".into(), DataType::Integer(42)));
-        assert_eq!(
-            result[2],
-            (
-                "passwords".into(),
-                DataType::List(vec![
-                    DataType::ByteString(ByteString::new(&"abc".as_bytes().into())),
-                    DataType::Integer(12345)
-                ])
-            )
+            result,
+            BTreeMap::from_iter([
+                (
+                    "hello".into(),
+                    DataType::ByteString(ByteString::new(&"username".as_bytes().into()))
+                ),
+                ("age".into(), DataType::Integer(42),),
+                (
+                    "passwords".into(),
+                    DataType::List(vec![
+                        DataType::ByteString(ByteString::new(&"abc".as_bytes().into())),
+                        DataType::Integer(12345)
+                    ])
+                )
+            ])
         );
     }
 }

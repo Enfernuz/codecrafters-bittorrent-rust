@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use byte_string::ByteString;
 
 pub mod byte_string;
@@ -7,7 +9,30 @@ pub enum DataType {
     Integer(i64),
     ByteString(ByteString),
     List(Vec<DataType>),
-    Dict(Vec<(String, DataType)>),
+    Dict(BTreeMap<String, DataType>),
+}
+
+impl DataType {
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            Self::Integer(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> Option<String> {
+        match self {
+            Self::ByteString(x) => Some(String::from_utf8_lossy(&x.get_data()).into_owned()),
+            _ => None,
+        }
+    }
+
+    pub fn as_dict(&self) -> Option<&BTreeMap<String, DataType>> {
+        match self {
+            Self::Dict(dict) => Some(dict),
+            _ => None,
+        }
+    }
 }
 
 impl From<DataType> for serde_json::Value {
