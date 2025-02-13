@@ -33,6 +33,13 @@ impl DataType {
             _ => None,
         }
     }
+
+    pub fn as_byte_string(&self) -> Option<&ByteString> {
+        match self {
+            Self::ByteString(byte_str) => Some(byte_str),
+            _ => None,
+        }
+    }
 }
 
 impl From<DataType> for serde_json::Value {
