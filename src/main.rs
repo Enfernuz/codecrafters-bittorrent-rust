@@ -2,9 +2,13 @@ mod bencode;
 mod torrent;
 mod types;
 
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::rc::Rc;
 use std::{env, fs};
 
 use bencode::decoder;
+use torrent::peer::HandshakeMessage;
 use torrent::tracker::{self, TrackerResponse};
 use torrent::Torrent;
 
@@ -62,6 +66,34 @@ fn main() {
                 }
             }
             Err(err) => eprintln!("Error! -- {}", &err),
+        }
+    } else if command == "handshake" {
+        let path = &args[2];
+        let addr = &args[3];
+        let result: Result<Torrent, std::io::Error> =
+            fs::read(path).map(|s| s.as_slice().try_into().ok().unwrap());
+        match result {
+            Ok(torrent) => {
+                let peer_id: [u8; 20] = "12345678901234567890".as_bytes()[0..20]
+                    .try_into()
+                    .expect("Could not parse 20-byte long peer_id");
+                let handshake_message =
+                    HandshakeMessage::new(torrent.get_info_hash(), &Rc::new(peer_id));
+                let mut stream =
+                    TcpStream::connect(addr).expect(&format!("Could not connect to {}", addr));
+                stream
+                    .write(handshake_message.as_bytes().as_ref())
+                    .expect(&format!("Could not write to TCP socket for {}", addr));
+                let mut buf: [u8; 68] = [0; 68];
+                stream
+                    .read(&mut buf)
+                    .expect(&format!("Could not read from TCP socket for {}", addr));
+                let response = HandshakeMessage::parse(&buf);
+                println!("{}", &response);
+            }
+            Err(err) => {
+                eprintln!("Got failure response from the peer: {}", &err);
+            }
         }
     } else {
         eprintln!("unknown command: {}", args[1])

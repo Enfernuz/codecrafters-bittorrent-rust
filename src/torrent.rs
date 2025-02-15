@@ -1,6 +1,7 @@
+pub mod peer;
 pub mod tracker;
 
-use std::{collections::HashMap, fmt};
+use std::{collections::HashMap, fmt, rc::Rc};
 
 use sha1::{Digest, Sha1};
 use thiserror::Error;
@@ -27,9 +28,9 @@ pub enum TorrentParseError {
 pub struct Torrent {
     announce: String,
     length: u64,
-    info_hash: [u8; 20],
+    info_hash: Rc<[u8; 20]>,
     piece_length: u64,
-    pieces: Box<[[u8; 20]]>,
+    pieces: Rc<[[u8; 20]]>,
 }
 
 impl Torrent {
@@ -41,7 +42,7 @@ impl Torrent {
         self.length
     }
 
-    pub fn get_info_hash(&self) -> &[u8; 20] {
+    pub fn get_info_hash(&self) -> &Rc<[u8; 20]> {
         &self.info_hash
     }
 
@@ -49,7 +50,7 @@ impl Torrent {
         self.piece_length
     }
 
-    pub fn get_pieces(&self) -> &Box<[[u8; 20]]> {
+    pub fn get_pieces(&self) -> &Rc<[[u8; 20]]> {
         &self.pieces
     }
 }
@@ -144,7 +145,7 @@ impl TryFrom<&DataType> for Torrent {
                 Ok(Torrent {
                     announce,
                     length,
-                    info_hash: sha1_hash.into(),
+                    info_hash: Rc::new(sha1_hash.into()),
                     piece_length,
                     pieces,
                 })
@@ -164,7 +165,7 @@ impl fmt::Display for Torrent {
             "Tracker URL: {}\nLength: {}\nInfo Hash: {}\nPiece Length: {}\nPiece Hashes:\n{}",
             &self.announce,
             self.length,
-            hex::encode(&self.get_info_hash()),
+            hex::encode(self.get_info_hash().as_ref()),
             self.piece_length,
             self.pieces
                 .iter()
@@ -175,7 +176,7 @@ impl fmt::Display for Torrent {
     }
 }
 
-fn parse_pieces(byte_str: &ByteString) -> Box<[[u8; 20]]> {
+fn parse_pieces(byte_str: &ByteString) -> Rc<[[u8; 20]]> {
     let mut pieces: Vec<[u8; 20]> = vec![];
     // TODO: replace with an actual error
     assert!(
