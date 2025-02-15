@@ -80,7 +80,7 @@ fn main() {
                 let mut stream =
                     TcpStream::connect(addr).expect(&format!("Could not connect to {}", addr));
                 stream
-                    .write(handshake_message.as_bytes().as_ref())
+                    .write_all(handshake_message.as_bytes().as_ref())
                     .expect(&format!("Could not write to TCP socket for {}", addr));
                 let mut buf: [u8; 68] = [0; 68];
                 stream
