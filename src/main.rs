@@ -74,9 +74,7 @@ fn main() {
             fs::read(path).map(|s| s.as_slice().try_into().ok().unwrap());
         match result {
             Ok(torrent) => {
-                let peer_id: [u8; 20] = "12345678901234567890".as_bytes()[0..20]
-                    .try_into()
-                    .expect("Could not parse 20-byte long peer_id");
+                let peer_id: [u8; 20] = *b"12345678901234567890";
                 let handshake_message =
                     HandshakeMessage::new(torrent.get_info_hash(), &Rc::new(peer_id));
                 let mut stream =
