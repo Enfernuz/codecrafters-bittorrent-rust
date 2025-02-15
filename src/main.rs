@@ -84,7 +84,7 @@ fn main() {
                     .expect(&format!("Could not write to TCP socket for {}", addr));
                 let mut buf: [u8; 68] = [0; 68];
                 stream
-                    .read(&mut buf)
+                    .read_exact(&mut buf)
                     .expect(&format!("Could not read from TCP socket for {}", addr));
                 let response = HandshakeMessage::parse(&buf);
                 println!("{}", &response);
