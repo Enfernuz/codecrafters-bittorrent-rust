@@ -1,18 +1,30 @@
 use std::rc::Rc;
 
+use thiserror::Error;
+
 use crate::types::DataType;
 
-use super::DecodeError;
+#[derive(Error, Debug, PartialEq)]
+pub enum ListDecodeError {
+    #[error("The input is empty.")]
+    EmptyInput,
+    #[error(
+        "Bencoded lists must start with 'l' but got '{found:?}' (ASCII: '{found_as_ascii:?}')."
+    )]
+    StartNotFound { found: u8, found_as_ascii: char },
+    #[error("The end of list ('e') not found.")]
+    EndNotFound,
+    #[error("Could not decode the element at {position}.")]
+    ElementDecodeError { position: usize },
+}
 
-pub fn decode_list(bencoded: &[u8]) -> Result<(Rc<[DataType]>, usize), DecodeError> {
-    //dbg!("decode_list: {:?}", bencoded);
-
+pub fn decode_list(bencoded: &[u8]) -> Result<(Rc<[DataType]>, usize), ListDecodeError> {
     if let [start, ..] = bencoded {
         if *start != b'l' {
-            Err(DecodeError::new(&format!(
-                "Bencoded lists must start with 'l' but got '{}' (ASCII: '{}').",
-                *start, *start as char
-            )))?
+            return Err(ListDecodeError::StartNotFound {
+                found: *start,
+                found_as_ascii: *start as char,
+            });
         }
 
         let mut decoded_elements: Vec<DataType> = vec![];
@@ -26,7 +38,8 @@ pub fn decode_list(bencoded: &[u8]) -> Result<(Rc<[DataType]>, usize), DecodeErr
                     break;
                 }
                 _ => {
-                    let (decoded_element, bytes_processed) = super::decode(&bencoded[pos..])?;
+                    let (decoded_element, bytes_processed) = super::decode(&bencoded[pos..])
+                        .map_err(|err| ListDecodeError::ElementDecodeError { position: pos })?;
                     decoded_elements.push(decoded_element);
                     pos += bytes_processed;
                 }
@@ -34,12 +47,12 @@ pub fn decode_list(bencoded: &[u8]) -> Result<(Rc<[DataType]>, usize), DecodeErr
         }
 
         if !end_of_list_found {
-            Err(DecodeError::new("End of list ('e') not found.".into()))?
+            return Err(ListDecodeError::EndNotFound);
         }
 
         Ok((decoded_elements.into(), pos))
     } else {
-        Err(DecodeError::new("The input is empty."))?
+        return Err(ListDecodeError::EmptyInput);
     }
 }
 
@@ -223,76 +236,59 @@ mod tests {
     #[test]
     fn test_empty_input() {
         let result = decode_list(&[]);
-
-        assert_eq!(result.is_err(), true);
-        assert_eq!(result.unwrap_err().get_message(), "The input is empty.");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), ListDecodeError::EmptyInput);
     }
 
     #[test]
     fn test_end_not_found_error() {
         let result = decode_list("l".as_bytes());
-
-        assert_eq!(result.is_err(), true);
-        assert_eq!(
-            result.unwrap_err().get_message(),
-            "End of list ('e') not found."
-        );
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), ListDecodeError::EndNotFound);
 
         let result = decode_list("lle".as_bytes());
-
-        assert_eq!(result.is_err(), true);
-        assert_eq!(
-            result.unwrap_err().get_message(),
-            "End of list ('e') not found."
-        );
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), ListDecodeError::EndNotFound);
 
         let result = decode_list("li123e".as_bytes());
-
-        assert_eq!(result.is_err(), true);
-        assert_eq!(
-            result.unwrap_err().get_message(),
-            "End of list ('e') not found."
-        );
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), ListDecodeError::EndNotFound);
 
         let result = decode_list("l4:care".as_bytes());
-
-        assert_eq!(result.is_err(), true);
-        assert_eq!(
-            result.unwrap_err().get_message(),
-            "End of list ('e') not found."
-        );
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), ListDecodeError::EndNotFound);
     }
 
     #[test]
     fn test_invalid_start_character() {
         let result = decode_list("12345".as_bytes());
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
         assert_eq!(
-            result.unwrap_err().get_message(),
-            &format!(
-                "Bencoded lists must start with 'l' but got '{}' (ASCII: '{}').",
-                b'1', 1
-            )
+            result.unwrap_err(),
+            ListDecodeError::StartNotFound {
+                found: b'1',
+                found_as_ascii: '1'
+            }
         );
 
         let result = decode_list("ei123el".as_bytes());
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
         assert_eq!(
-            result.unwrap_err().get_message(),
-            &format!(
-                "Bencoded lists must start with 'l' but got '{}' (ASCII: '{}').",
-                b'e', 'e'
-            )
+            result.unwrap_err(),
+            ListDecodeError::StartNotFound {
+                found: b'e',
+                found_as_ascii: 'e'
+            }
         );
 
         let result = decode_list("xyz".as_bytes());
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
         assert_eq!(
-            result.unwrap_err().get_message(),
-            &format!(
-                "Bencoded lists must start with 'l' but got '{}' (ASCII: '{}').",
-                b'x', 'x'
-            )
+            result.unwrap_err(),
+            ListDecodeError::StartNotFound {
+                found: b'x',
+                found_as_ascii: 'x'
+            }
         );
     }
 }
