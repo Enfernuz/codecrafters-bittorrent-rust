@@ -2,7 +2,7 @@ mod bencode;
 mod torrent;
 mod types;
 
-use std::io::{Read, Write};
+use std::io::{BufWriter, Read, Seek, Write};
 use std::net::TcpStream;
 use std::rc::Rc;
 use std::{env, fs};
@@ -108,21 +108,52 @@ fn main() {
                 match tracker_response {
                     TrackerResponse::Ok { interval: _, peers } => {
                         // Connect to a peer and download the piece.
-                        let addr = &peers[0].clone();
                         // Handshake start
+                        for peer in peers.as_ref() {
+                            println!("Found a peer: {peer}");
+                        }
                         let peer_id: [u8; 20] = *b"12345678901234567890";
                         let handshake_message =
                             HandshakeMessage::new(torrent.get_info_hash(), &Rc::new(peer_id));
-                        let mut peer = Peer::new(addr);
-                        let response = peer.handshake(&handshake_message);
+                        let mut peer_0 = Peer::new(&peers[0].clone());
+                        let response = peer_0.handshake(&handshake_message);
                         println!("Received handshake: {}", &response);
                         // Handshake end
-                        peer.receive_bitfield();
-                        peer.send_interested();
-                        peer.receive_unchoke();
-                        let mut file = fs::File::create(out).unwrap();
+                        peer_0.receive_bitfield();
+                        peer_0.send_interested();
+                        peer_0.receive_unchoke();
+                        //
+                        let mut peer_1 = Peer::new(&peers[1].clone());
+                        let response = peer_1.handshake(&handshake_message);
+                        println!("Received handshake: {}", &response);
+                        // Handshake end
+                        peer_1.receive_bitfield();
+                        peer_1.send_interested();
+                        peer_1.receive_unchoke();
+                        //
+                        //
+                        let mut peer_2 = Peer::new(&peers[2].clone());
+                        let response = peer_2.handshake(&handshake_message);
+                        println!("Received handshake: {}", &response);
+                        // Handshake end
+                        peer_2.receive_bitfield();
+                        peer_2.send_interested();
+                        peer_2.receive_unchoke();
+                        //
+                        let mut file = BufWriter::new(fs::File::create(out).unwrap());
                         let mut begin: u32 = 0;
-                        let mut left: u64 = torrent.get_piece_length();
+                        let mut left: u64 =
+                            if piece_index as usize == torrent.get_pieces().len() - 1 {
+                                let residue = torrent.get_length() % torrent.get_piece_length();
+                                if residue > 0 {
+                                    residue
+                                } else {
+                                    torrent.get_piece_length()
+                                }
+                            } else {
+                                torrent.get_piece_length()
+                            };
+
                         let default_block_length = 16 * 1024 as u32;
                         while left > 0 {
                             let block_length: u32 = if left > default_block_length as u64 {
@@ -131,12 +162,80 @@ fn main() {
                                 left as u32
                             };
                             println!("Should receive block of size {block_length} (left {left}).");
-                            peer.send_piece_request(piece_index, begin, block_length);
+                            let mut res = Err(());
+                            while res.is_err() {
+                                println!("Getting a block from peer #0...");
+                                res = peer_0.get_piece_block(piece_index, begin, block_length);
+                                if res.is_err() {
+                                    println!("Unable to get a block from peer #0.");
+                                    peer_0.shutdown();
+                                    peer_0 = Peer::new(&peers[0].clone());
+                                    let response = peer_0.handshake(&handshake_message);
+                                    println!("Received handshake: {}", &response);
+                                    // Handshake end
+                                    peer_0.receive_bitfield();
+                                    peer_0.send_interested();
+                                    peer_0.receive_unchoke();
+                                    println!("Getting a block from peer #1...");
+                                    res = peer_1.get_piece_block(piece_index, begin, block_length);
+                                }
+                                if res.is_err() {
+                                    println!("Unable to get a block from peer #1.");
+                                    peer_1.shutdown();
+                                    peer_1 = Peer::new(&peers[1].clone());
+                                    let response = peer_1.handshake(&handshake_message);
+                                    println!("Received handshake: {}", &response);
+                                    // Handshake end
+                                    peer_1.receive_bitfield();
+                                    peer_1.send_interested();
+                                    peer_1.receive_unchoke();
+                                    println!("Getting a block from peer #2...");
+                                    res = peer_2.get_piece_block(piece_index, begin, block_length);
+                                }
+                                if res.is_err() {
+                                    println!("Unable to get a block from peer #2.");
+                                    peer_2.shutdown();
+                                    peer_2 = Peer::new(&peers[2].clone());
+                                    let response = peer_2.handshake(&handshake_message);
+                                    println!("Received handshake: {}", &response);
+                                    // Handshake end
+                                    peer_2.receive_bitfield();
+                                    peer_2.send_interested();
+                                    peer_2.receive_unchoke();
+                                }
+                                //     if res.is_err() {
+                                //         println!("Error while getting the piece block from peer_0. Retrying with peer_1...");
+                                //         peer_0.shutdown();
+                                //         res = peer_1.get_piece_block(piece_index, begin, block_length);
+                                //     }
+                                // if res.is_err() {
+                                //     println!("Error while getting the piece block from peer_1. Retrying with peer_2...");
+                                //     res = peer_2.get_piece_block(piece_index, begin, block_length);
+                                // }
+
+                                // if res.is_err() {
+                                //     peer_0 = Peer::new(&peers[0].clone());
+                                //     let response = peer_0.handshake(&handshake_message);
+                                //     println!("Received handshake: {}", &response);
+                                //     // Handshake end
+                                //     peer_0.receive_bitfield();
+                                //     peer_0.send_interested();
+                                //     peer_0.receive_unchoke();
+                                //     res = peer_0.get_piece_block(piece_index, begin, block_length);
+                                // }
+
+                                // if res.is_err() {
+                                //     panic!("FOR FUCK SAKE!")
+                                // }
+                            }
                             begin += block_length;
-                            let recv = peer.receive_piece_block(block_length);
-                            file.write_all(recv.as_ref()).unwrap();
+                            file.write_all(&res.unwrap()).unwrap();
                             left -= block_length as u64;
                         }
+                        file.flush().unwrap();
+                        peer_0.shutdown();
+                        peer_1.shutdown();
+                        peer_2.shutdown();
                     }
                     TrackerResponse::Failure(reason) => {
                         eprintln!("Got failure response from the tracker: {}", &reason);

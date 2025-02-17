@@ -3,6 +3,7 @@ use std::{
     io::{BufReader, BufWriter, Read, Write},
     net::TcpStream,
     rc::Rc,
+    time::Duration,
 };
 
 pub struct Peer {
@@ -76,11 +77,18 @@ impl PeerMessageId {
 impl Peer {
     pub fn new(addr: &str) -> Peer {
         let stream = TcpStream::connect(addr).expect(&format!("Could not connect to {}", addr));
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
         println!("Created TCP connection with {addr}");
         Peer {
             addr: addr.to_owned(),
             stream: Box::new(stream),
         }
+    }
+
+    pub fn shutdown(&mut self) {
+        self.stream.shutdown(std::net::Shutdown::Both).unwrap()
     }
 
     pub fn handshake(&mut self, message: &HandshakeMessage) -> HandshakeMessage {
@@ -140,6 +148,16 @@ impl Peer {
         // .expect(&format!("Could not read Unchoke from TCP socket for {}", &self.addr));
     }
 
+    pub fn get_piece_block(
+        &mut self,
+        piece_index: u32,
+        begin: u32,
+        block_length: u32,
+    ) -> Result<Box<[u8]>, ()> {
+        self.send_piece_request(piece_index, begin, block_length);
+        self.receive_piece_block(block_length)
+    }
+
     pub fn send_piece_request(&mut self, piece_index: u32, begin: u32, block_length: u32) {
         println!("send_piece_request: start");
         println!(
@@ -163,27 +181,27 @@ impl Peer {
         // dbg!("Sent piece request: {:?}", message.as_bytes());
     }
 
-    pub fn receive_piece_block(&mut self, block_length: u32) -> Box<[u8]> {
+    pub fn receive_piece_block(&mut self, block_length: u32) -> Result<Box<[u8]>, ()> {
         // Len{4}|Type{1}|Index{4}|Begin{4}|Piece{~}
         println!("receive_piece_block: start");
         println!("receive_piece_block: block_length={}", block_length);
-        let stream: &mut TcpStream = self.stream.as_mut();
         let capacity: usize = 13 + block_length as usize;
-        let mut received: Vec<u8> = Vec::with_capacity(capacity);
-        let mut reader = BufReader::new(stream);
-        let mut buf: [u8; 16 * 1024] = [0; 16 * 1024];
-        while received.len() < capacity {
-            // println!("receive_piece_block: start read iter.");
-            let recv = reader.read(&mut buf).unwrap();
-            received.extend_from_slice(&buf[..recv]);
-            println!("receive_piece_block: end read iter (received {recv} bytes).");
+        let mut stream = BufReader::new(self.stream.as_mut()).take(capacity as u64);
+        let mut buf: Vec<u8> = Vec::with_capacity(capacity);
+        let recv = match stream.read_to_end(&mut buf) {
+            Ok(n) => n,
+            Err(_) => return Err(()),
+        };
+        println!("receive_piece_block: received {} bytes", buf.len());
+        if recv == 0 {
+            println!("Error: Last received data was {recv} bytes long.");
+            return Err(());
         }
-        println!("receive_piece_block: received {} bytes", received.len());
 
-        let msg = PeerMessage::from_bytes(&received);
+        let msg = PeerMessage::from_bytes(&buf);
         println!("receive_piece_block: {}", &msg);
         println!("receive_piece_block: end");
-        msg.payload
+        Ok(msg.payload)
     }
 }
 
