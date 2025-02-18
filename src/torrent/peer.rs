@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    io::{BufReader, BufWriter, Read, Write},
+    io::{BufReader, Read, Write},
     net::TcpStream,
     rc::Rc,
     time::Duration,
@@ -32,15 +32,6 @@ pub enum PeerMessageId {
     Request,
     Piece,
     Cancel,
-    //     0 - choke
-    // 1 - unchoke
-    // 2 - interested
-    // 3 - not interested
-    // 4 - have
-    // 5 - bitfield
-    // 6 - request
-    // 7 - piece
-    // 8 - cancel
 }
 
 impl PeerMessageId {
@@ -145,7 +136,6 @@ impl Peer {
         let msg = PeerMessage::from_bytes(&buf);
         println!("receive_unchoke: {}", &msg);
         println!("receive_unchoke: end");
-        // .expect(&format!("Could not read Unchoke from TCP socket for {}", &self.addr));
     }
 
     pub fn get_piece_block(
@@ -178,7 +168,6 @@ impl Peer {
             .write_all(message.as_bytes().as_ref())
             .expect(&format!("Could not write to TCP socket for {}", &self.addr));
         println!("send_piece_request: end");
-        // dbg!("Sent piece request: {:?}", message.as_bytes());
     }
 
     pub fn receive_piece_block(&mut self, block_length: u32) -> Result<Box<[u8]>, ()> {
