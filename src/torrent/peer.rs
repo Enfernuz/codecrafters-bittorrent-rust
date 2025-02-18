@@ -16,13 +16,13 @@ pub struct HandshakeMessage {
     peer_id: Rc<[u8; 20]>,
 }
 
-pub struct PeerMessage {
-    message_id: PeerMessageId,
+pub struct Message {
+    tag: MessageTag,
     payload: Box<[u8]>,
 }
 
 #[derive(Debug)]
-pub enum PeerMessageId {
+pub enum MessageTag {
     Choke,
     Unchoke,
     Interested,
@@ -34,7 +34,7 @@ pub enum PeerMessageId {
     Cancel,
 }
 
-impl PeerMessageId {
+impl MessageTag {
     pub fn as_byte(&self) -> u8 {
         match self {
             Self::Choke => 0,
@@ -60,7 +60,7 @@ impl PeerMessageId {
             6 => Self::Request,
             7 => Self::Piece,
             8 => Self::Cancel,
-            other => panic!("PeerMessageId::from_byte - {}", other),
+            other => panic!("MessageTag::from_byte - {}", other),
         }
     }
 }
@@ -101,7 +101,7 @@ impl Peer {
         let mut buf: [u8; 512] = [0; 512];
         let recv = stream.read(&mut buf).unwrap();
         println!("receive_bitfield: received {} bytes", recv);
-        let msg = PeerMessage::from_bytes(&buf);
+        let msg = Message::from_bytes(&buf);
         println!("receive_bitfield: {}", &msg);
         println!("receive_bitfield: end");
         // .expect(&format!("Could not read BitField from TCP socket for {}", &self.addr));
@@ -109,8 +109,8 @@ impl Peer {
 
     pub fn send_interested(&mut self) {
         println!("send_interested: start");
-        let message = PeerMessage {
-            message_id: PeerMessageId::Interested,
+        let message = Message {
+            tag: MessageTag::Interested,
             payload: [].into(),
         };
         let stream: &mut TcpStream = self.stream.as_mut();
@@ -133,7 +133,7 @@ impl Peer {
         }
 
         println!("receive_unchoke: received {} bytes", received);
-        let msg = PeerMessage::from_bytes(&buf);
+        let msg = Message::from_bytes(&buf);
         println!("receive_unchoke: {}", &msg);
         println!("receive_unchoke: end");
     }
@@ -159,8 +159,8 @@ impl Peer {
         payload.extend_from_slice(&begin.to_be_bytes());
         payload.extend_from_slice(&block_length.to_be_bytes());
 
-        let message = PeerMessage {
-            message_id: PeerMessageId::Request,
+        let message = Message {
+            tag: MessageTag::Request,
             payload: payload.into(),
         };
         let stream: &mut TcpStream = self.stream.as_mut();
@@ -187,7 +187,7 @@ impl Peer {
             return Err(());
         }
 
-        let msg = PeerMessage::from_bytes(&buf);
+        let msg = Message::from_bytes(&buf);
         println!("receive_piece_block: {}", &msg);
         println!("receive_piece_block: end");
         Ok(msg.payload)
@@ -235,24 +235,24 @@ impl fmt::Display for HandshakeMessage {
     }
 }
 
-impl fmt::Display for PeerMessage {
+impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "Type: {:?}, Payload length: {}, \n",
-            self.message_id,
+            self.tag,
             self.payload.len()
         )
     }
 }
 
-impl PeerMessage {
+impl Message {
     pub fn as_bytes(&self) -> Box<[u8]> {
         let mut v: Vec<u8> = vec![];
         let payload_length = self.payload.len();
         let length = (1 + payload_length) as u32;
         v.extend_from_slice(&length.to_be_bytes());
-        v.push(self.message_id.as_byte());
+        v.push(self.tag.as_byte());
         if payload_length > 0 {
             v.extend_from_slice(&self.payload.as_ref());
         }
@@ -264,29 +264,26 @@ impl PeerMessage {
         println!("from_bytes: data.len()={}", data.len());
         // TODO: length check
         let length = u32::from_be_bytes([data[0], data[1], data[2], data[3]]) as usize;
-        let _type = PeerMessageId::from_byte(data[4]);
-        println!(
-            "from_bytes: PeerMessage: length={}, type={:?}",
-            length, &_type
-        );
-        match _type {
-            PeerMessageId::Bitfield => {
+        let tag = MessageTag::from_byte(data[4]);
+        println!("from_bytes: PeerMessage: length={}, tag={:?}", length, &tag);
+        match tag {
+            MessageTag::Bitfield => {
                 let payload = &data[5..5 + length];
-                return PeerMessage {
-                    message_id: PeerMessageId::Bitfield,
+                return Message {
+                    tag: MessageTag::Bitfield,
                     payload: payload.into(),
                 };
             }
-            PeerMessageId::Unchoke => {
-                return PeerMessage {
-                    message_id: PeerMessageId::Unchoke,
+            MessageTag::Unchoke => {
+                return Message {
+                    tag: MessageTag::Unchoke,
                     payload: [].into(),
                 }
             }
-            PeerMessageId::Piece => {
+            MessageTag::Piece => {
                 let payload = &data[13..];
-                return PeerMessage {
-                    message_id: PeerMessageId::Piece,
+                return Message {
+                    tag: MessageTag::Piece,
                     payload: payload.into(),
                 };
             }
