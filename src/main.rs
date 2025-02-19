@@ -3,18 +3,19 @@ mod error;
 mod torrent;
 mod types;
 
-use std::io::{BufWriter, Write};
-use std::rc::Rc;
-use std::{env, fs};
+use std::{
+    env, fs,
+    io::{BufWriter, Write},
+    rc::Rc,
+};
 
-use bencode::decoder;
-use error::Error;
-use torrent::message::handshake_message::HandshakeMessage;
-use torrent::peer::Peer;
-use torrent::tracker::{self, TrackerResponse};
-use torrent::Torrent;
+// use bencode::decoder;
+// use error::Error;
+// // use torrent::message::handshake_message::HandshakeMessage;
+// use torrent::peer::Peer;
+// use torrent::tracker::{self, TrackerResponse};
 
-pub use crate::bencode::decoder::bytestring_decoder;
+// pub use crate::bencode::decoder::bytestring_decoder;
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
 fn main() {
@@ -23,8 +24,8 @@ fn main() {
 
     if command == "decode" {
         let encoded_value = &args[2];
-        let result: Result<(types::DataType, usize), decoder::DecodeError> =
-            decoder::decode(encoded_value.as_bytes());
+        let result: Result<(crate::types::DataType, usize), crate::bencode::decoder::DecodeError> =
+            crate::bencode::decoder::decode(encoded_value.as_bytes());
         match result {
             Ok((decoded, _)) => {
                 let json: serde_json::Value = decoded.into();
@@ -34,7 +35,7 @@ fn main() {
         }
     } else if command == "info" {
         let path = &args[2];
-        let result: Result<Torrent, std::io::Error> =
+        let result: Result<crate::torrent::Torrent, std::io::Error> =
             fs::read(path).map(|s| s.as_slice().try_into().ok().unwrap());
         match result {
             Ok(torrent) => println!("{}", &torrent),
@@ -42,27 +43,28 @@ fn main() {
         }
     } else if command == "peers" {
         let path = &args[2];
-        let result: Result<Torrent, std::io::Error> =
+        let result: Result<crate::torrent::Torrent, std::io::Error> =
             fs::read(path).map(|s| s.as_slice().try_into().ok().unwrap());
 
         match result {
             Ok(torrent) => {
-                let tracker_response: TrackerResponse = tracker::get(
-                    /* torrent= */ &torrent,
-                    /* peer_id= */ "12345678901234567890",
-                    /* port= */ 6881,
-                    /* uploaded= */ 0,
-                    /* downloaded= */ 0,
-                    /* left= */ torrent.get_length(),
-                )
-                .unwrap();
+                let tracker_response: crate::torrent::tracker::TrackerResponse =
+                    crate::torrent::tracker::get(
+                        /* torrent= */ &torrent,
+                        /* peer_id= */ "12345678901234567890",
+                        /* port= */ 6881,
+                        /* uploaded= */ 0,
+                        /* downloaded= */ 0,
+                        /* left= */ torrent.get_length(),
+                    )
+                    .unwrap();
                 match tracker_response {
-                    TrackerResponse::Ok { interval: _, peers } => {
+                    crate::torrent::tracker::TrackerResponse::Ok { interval: _, peers } => {
                         for peer in peers.as_ref() {
                             println!("{}", peer);
                         }
                     }
-                    TrackerResponse::Failure(reason) => {
+                    crate::torrent::tracker::TrackerResponse::Failure(reason) => {
                         eprintln!("Got failure response from the tracker: {}", &reason);
                     }
                 }
@@ -72,14 +74,17 @@ fn main() {
     } else if command == "handshake" {
         let path = &args[2];
         let addr = &args[3];
-        let result: Result<Torrent, std::io::Error> =
+        let result: Result<crate::torrent::Torrent, std::io::Error> =
             fs::read(path).map(|s| s.as_slice().try_into().ok().unwrap());
         match result {
             Ok(torrent) => {
                 let peer_id: [u8; 20] = *b"12345678901234567890";
                 let handshake_message =
-                    HandshakeMessage::new(torrent.get_info_hash(), &Rc::new(peer_id));
-                let mut peer = Peer::new(addr).ok().unwrap();
+                    crate::torrent::message::handshake_message::HandshakeMessage::new(
+                        torrent.get_info_hash(),
+                        &Rc::new(peer_id),
+                    );
+                let mut peer = crate::torrent::peer::Peer::new(addr).ok().unwrap();
                 let response = peer.handshake(&handshake_message).ok().unwrap();
                 println!("{}", &response);
             }
@@ -92,22 +97,23 @@ fn main() {
         let path = &args[4];
         let piece_index: u32 = args[5].parse().expect("TODO: piece_index parse error");
 
-        let result: Result<Torrent, std::io::Error> =
+        let result: Result<crate::torrent::Torrent, std::io::Error> =
             fs::read(path).map(|s| s.as_slice().try_into().ok().unwrap());
 
         match result {
             Ok(torrent) => {
-                let tracker_response: TrackerResponse = tracker::get(
-                    /* torrent= */ &torrent,
-                    /* peer_id= */ "12345678901234567890",
-                    /* port= */ 6881,
-                    /* uploaded= */ 0,
-                    /* downloaded= */ 0,
-                    /* left= */ torrent.get_length(),
-                )
-                .unwrap();
+                let tracker_response: crate::torrent::tracker::TrackerResponse =
+                    crate::torrent::tracker::get(
+                        /* torrent= */ &torrent,
+                        /* peer_id= */ "12345678901234567890",
+                        /* port= */ 6881,
+                        /* uploaded= */ 0,
+                        /* downloaded= */ 0,
+                        /* left= */ torrent.get_length(),
+                    )
+                    .unwrap();
                 match tracker_response {
-                    TrackerResponse::Ok { interval: _, peers } => {
+                    crate::torrent::tracker::TrackerResponse::Ok { interval: _, peers } => {
                         // Connect to a peer and download the piece.
                         // Handshake start
                         for peer in peers.as_ref() {
@@ -115,8 +121,13 @@ fn main() {
                         }
                         let peer_id: [u8; 20] = *b"12345678901234567890";
                         let handshake_message =
-                            HandshakeMessage::new(torrent.get_info_hash(), &Rc::new(peer_id));
-                        let mut peer_0 = Peer::new(&peers[0].clone()).ok().unwrap();
+                            crate::torrent::message::handshake_message::HandshakeMessage::new(
+                                torrent.get_info_hash(),
+                                &Rc::new(peer_id),
+                            );
+                        let mut peer_0 = crate::torrent::peer::Peer::new(&peers[0].clone())
+                            .ok()
+                            .unwrap();
                         let response = peer_0.handshake(&handshake_message).ok().unwrap();
                         println!("Received handshake: {}", &response);
                         // Handshake end
@@ -124,7 +135,9 @@ fn main() {
                         peer_0.send_interested();
                         peer_0.receive_unchoke();
                         //
-                        let mut peer_1 = Peer::new(&peers[1].clone()).ok().unwrap();
+                        let mut peer_1 = crate::torrent::peer::Peer::new(&peers[1].clone())
+                            .ok()
+                            .unwrap();
                         let response = peer_1.handshake(&handshake_message).ok().unwrap();
                         println!("Received handshake: {}", &response);
                         // Handshake end
@@ -133,7 +146,9 @@ fn main() {
                         peer_1.receive_unchoke();
                         //
                         //
-                        let mut peer_2 = Peer::new(&peers[2].clone()).ok().unwrap();
+                        let mut peer_2 = crate::torrent::peer::Peer::new(&peers[2].clone())
+                            .ok()
+                            .unwrap();
                         let response = peer_2.handshake(&handshake_message).ok().unwrap();
                         println!("Received handshake: {}", &response);
                         // Handshake end
@@ -163,13 +178,16 @@ fn main() {
                                 left as u32
                             };
                             println!("Should receive block of size {block_length} (left {left}).");
-                            let mut res: Result<Box<[u8]>, Error> = Err(Error::Mock);
+                            let mut res: Result<Box<[u8]>, crate::error::Error> =
+                                Err(crate::error::Error::Mock);
                             while res.is_err() {
                                 println!("Getting a block from peer #0...");
                                 res = peer_0.get_piece_block(piece_index, begin, block_length);
                                 if res.is_err() {
                                     println!("Unable to get a block from peer #0.");
-                                    peer_0 = Peer::new(&peers[0].clone()).ok().unwrap();
+                                    peer_0 = crate::torrent::peer::Peer::new(&peers[0].clone())
+                                        .ok()
+                                        .unwrap();
                                     let response =
                                         peer_0.handshake(&handshake_message).ok().unwrap();
                                     println!("Received handshake: {}", &response);
@@ -182,7 +200,9 @@ fn main() {
                                 }
                                 if res.is_err() {
                                     println!("Unable to get a block from peer #1.");
-                                    peer_1 = Peer::new(&peers[1].clone()).ok().unwrap();
+                                    peer_1 = crate::torrent::peer::Peer::new(&peers[1].clone())
+                                        .ok()
+                                        .unwrap();
                                     let response =
                                         peer_1.handshake(&handshake_message).ok().unwrap();
                                     println!("Received handshake: {}", &response);
@@ -195,7 +215,9 @@ fn main() {
                                 }
                                 if res.is_err() {
                                     println!("Unable to get a block from peer #2.");
-                                    peer_2 = Peer::new(&peers[2].clone()).ok().unwrap();
+                                    peer_2 = crate::torrent::peer::Peer::new(&peers[2].clone())
+                                        .ok()
+                                        .unwrap();
                                     let response =
                                         peer_2.handshake(&handshake_message).ok().unwrap();
                                     println!("Received handshake: {}", &response);
@@ -235,7 +257,7 @@ fn main() {
                         }
                         file.flush().unwrap();
                     }
-                    TrackerResponse::Failure(reason) => {
+                    crate::torrent::tracker::TrackerResponse::Failure(reason) => {
                         eprintln!("Got failure response from the tracker: {}", &reason);
                     }
                 }

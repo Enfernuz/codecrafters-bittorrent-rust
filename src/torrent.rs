@@ -1,6 +1,9 @@
-pub mod message;
-pub mod peer;
-pub mod tracker;
+pub(crate) mod message;
+pub(crate) mod peer;
+pub(crate) mod tracker;
+
+// pub(crate) use message::*;
+// pub(crate) use tracker::*;
 
 use std::{collections::HashMap, fmt, rc::Rc};
 

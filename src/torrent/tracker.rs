@@ -2,8 +2,6 @@ use thiserror::Error;
 
 use crate::bencode::decoder;
 
-use super::Torrent;
-
 pub enum TrackerResponse {
     Ok { interval: u32, peers: Box<[String]> },
     Failure(String),
@@ -30,7 +28,7 @@ pub enum TrackerError {
 }
 
 pub fn get(
-    torrent: &Torrent,
+    torrent: &crate::torrent::Torrent,
     peer_id: &str,
     port: u16,
     uploaded: u64,

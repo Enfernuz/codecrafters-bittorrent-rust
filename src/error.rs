@@ -1,7 +1,5 @@
 use std::io;
 
-use crate::torrent::message::MessageTag;
-
 pub type Result<T> = core::result::Result<T, Error>;
 
 pub enum Error {
@@ -14,7 +12,7 @@ pub enum Error {
         minimum_length: u32,
         actual_length: u32,
     },
-    MessageParsingNotImplemented(MessageTag),
+    MessageParsingNotImplemented(crate::torrent::message::message::MessageTag),
     SocketError(io::Error),
     Mock,
 }

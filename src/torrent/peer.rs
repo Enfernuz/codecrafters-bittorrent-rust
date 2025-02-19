@@ -1,62 +1,64 @@
 use std::{
-    fmt,
     io::{Read, Write},
-    net::TcpStream,
+    net::{TcpStream, ToSocketAddrs},
     time::Duration,
 };
 
 use crate::error::Error;
 use crate::error::Result;
-use crate::torrent::message::HandshakeMessage;
-use crate::torrent::message::Message;
 
+// region:      --- Peer
 pub struct Peer {
-    addr: String,
-    stream: TcpStream,
+    socket: TcpStream,
 }
 
+// region:      --- Constructors
 impl Peer {
-    pub fn new(addr: &str) -> Result<Peer> {
-        let stream = TcpStream::connect(addr).map_err(|err| Error::SocketError(err))?;
-        stream
+    pub fn new<A: ToSocketAddrs>(addr: A) -> Result<Peer> {
+        let socket = TcpStream::connect(addr).map_err(|err| Error::SocketError(err))?;
+        socket
             .set_read_timeout(Some(Duration::from_secs(5)))
             .map_err(|err| Error::SocketError(err))?;
-        println!("Created TCP connection with {addr}");
-        Ok(Peer {
-            addr: addr.to_owned(),
-            stream: stream,
-        })
+        Ok(Peer { socket })
     }
+}
+// endregion:   --- Constructors
 
-    pub fn handshake(&mut self, message: &HandshakeMessage) -> Result<HandshakeMessage> {
+// region:      --- API
+impl Peer {
+    pub fn handshake(
+        &mut self,
+        message: &crate::torrent::message::handshake_message::HandshakeMessage,
+    ) -> Result<crate::torrent::message::handshake_message::HandshakeMessage> {
         let bytes: [u8; 68] = message.into();
-        self.stream
+        self.socket
             .write_all(&bytes)
             .map_err(|err| Error::SocketError(err))?;
         let mut buf: [u8; 68] = [0; 68];
-        self.stream
+        self.socket
             .read_exact(&mut buf)
             .map_err(|err| Error::SocketError(err))?;
 
         Ok((&buf).into())
     }
 
-    pub fn receive_bitfield(&mut self) -> Result<Message> {
+    pub fn receive_bitfield(&mut self) -> Result<crate::torrent::message::message::Message> {
         println!("receive_bitfield: start");
         let mut length_buf = [0u8; 4];
-        self.stream
+        self.socket
             .read_exact(&mut length_buf)
             .map_err(|err| Error::SocketError(err))?;
         let length: u32 = u32::from_be_bytes(length_buf);
         let mut buf = vec![0u8; length as usize];
-        self.stream
+        self.socket
             .read_exact(&mut buf)
             .map_err(|err| Error::SocketError(err))?;
 
         let combined: &[u8] = &[length_buf.as_slice(), buf.as_slice()].concat();
         println!("receive_bitfield: received {} bytes", combined.len());
 
-        let msg: Message = Message::try_from(combined)?;
+        let msg: crate::torrent::message::message::Message =
+            crate::torrent::message::message::Message::try_from(combined)?;
         println!("receive_bitfield: {}", &msg);
         println!("receive_bitfield: end");
         Ok(msg)
@@ -64,9 +66,9 @@ impl Peer {
 
     pub fn send_interested(&mut self) -> Result<()> {
         println!("send_interested: start");
-        let bytes: Box<[u8]> = (&Message::interested()).into();
+        let bytes: Box<[u8]> = (&crate::torrent::message::message::Message::interested()).into();
         println!("send_interested: Sending {} bytes", bytes.len());
-        self.stream
+        self.socket
             .write_all(bytes.as_ref())
             .map_err(|err| Error::SocketError(err))?;
         println!("send_interested: end");
@@ -74,27 +76,17 @@ impl Peer {
         Ok(())
     }
 
-    pub fn receive_unchoke(&mut self) -> Result<Message> {
+    pub fn receive_unchoke(&mut self) -> Result<crate::torrent::message::message::Message> {
         println!("receive_unchoke: start");
         let mut buf: [u8; 5] = [0; 5];
-        self.stream
+        self.socket
             .read_exact(&mut buf[..])
             .map_err(|err| Error::SocketError(err))?;
         println!("receive_unchoke: received {} bytes", buf.len());
-        let msg = Message::try_from(buf.as_slice())?;
+        let msg = crate::torrent::message::message::Message::try_from(buf.as_slice())?;
         println!("receive_unchoke: {}", &msg);
         println!("receive_unchoke: end");
         Ok(msg)
-    }
-
-    pub fn get_piece_block(
-        &mut self,
-        piece_index: u32,
-        begin: u32,
-        block_length: u32,
-    ) -> Result<Box<[u8]>> {
-        self.send_piece_request(piece_index, begin, block_length);
-        self.receive_piece_block(block_length)
     }
 
     pub fn send_piece_request(
@@ -108,9 +100,10 @@ impl Peer {
             "send_piece_request: piece_index={}, begin={}, block_length={}",
             piece_index, begin, block_length
         );
-        let message = Message::request(piece_index, begin, block_length);
+        let message =
+            crate::torrent::message::message::Message::request(piece_index, begin, block_length);
         let bytes: Box<[u8]> = (&message).into();
-        self.stream
+        self.socket
             .write_all(bytes.as_ref())
             .map_err(|err| Error::SocketError(err))?;
         println!("send_piece_request: end");
@@ -124,14 +117,28 @@ impl Peer {
         println!("receive_piece_block: block_length={}", block_length);
         let capacity: usize = 13 + block_length as usize;
         let mut buf: Vec<u8> = vec![0; capacity];
-        self.stream
+        self.socket
             .read_exact(&mut buf)
             .map_err(|err| Error::SocketError(err))?;
         println!("receive_piece_block: received {} bytes", buf.len());
 
-        let msg: Message = Message::try_from(buf.as_slice())?;
+        let msg: crate::torrent::message::message::Message =
+            crate::torrent::message::message::Message::try_from(buf.as_slice())?;
         println!("receive_piece_block: {}", &msg);
         println!("receive_piece_block: end");
         Ok(msg.get_payload()[8..].into())
     }
+
+    pub fn get_piece_block(
+        &mut self,
+        piece_index: u32,
+        begin: u32,
+        block_length: u32,
+    ) -> Result<Box<[u8]>> {
+        self.send_piece_request(piece_index, begin, block_length);
+        self.receive_piece_block(block_length)
+    }
 }
+// endregion:   --- API
+
+// endregion:   --- Peer

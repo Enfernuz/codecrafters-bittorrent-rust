@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, string::FromUtf8Error};
 
 use thiserror::Error;
 
-use crate::{bytestring_decoder, types::DataType};
+use crate::{bencode::decoder::bytestring_decoder, types::DataType};
 
 use super::bytestring_decoder::ByteStringDecodeError;
 
