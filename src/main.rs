@@ -35,7 +35,7 @@ fn main() {
         }
     } else if command == "info" {
         let path = &args[2];
-        let result: Result<crate::torrent::Torrent, std::io::Error> =
+        let result: Result<crate::torrent::torrent::Torrent, std::io::Error> =
             fs::read(path).map(|s| s.as_slice().try_into().ok().unwrap());
         match result {
             Ok(torrent) => println!("{}", &torrent),
@@ -43,7 +43,7 @@ fn main() {
         }
     } else if command == "peers" {
         let path = &args[2];
-        let result: Result<crate::torrent::Torrent, std::io::Error> =
+        let result: Result<crate::torrent::torrent::Torrent, std::io::Error> =
             fs::read(path).map(|s| s.as_slice().try_into().ok().unwrap());
 
         match result {
@@ -74,7 +74,7 @@ fn main() {
     } else if command == "handshake" {
         let path = &args[2];
         let addr = &args[3];
-        let result: Result<crate::torrent::Torrent, std::io::Error> =
+        let result: Result<crate::torrent::torrent::Torrent, std::io::Error> =
             fs::read(path).map(|s| s.as_slice().try_into().ok().unwrap());
         match result {
             Ok(torrent) => {
@@ -97,7 +97,7 @@ fn main() {
         let path = &args[4];
         let piece_index: u32 = args[5].parse().expect("TODO: piece_index parse error");
 
-        let result: Result<crate::torrent::Torrent, std::io::Error> =
+        let result: Result<crate::torrent::torrent::Torrent, std::io::Error> =
             fs::read(path).map(|s| s.as_slice().try_into().ok().unwrap());
 
         match result {

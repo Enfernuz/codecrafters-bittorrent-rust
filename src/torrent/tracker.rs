@@ -28,7 +28,7 @@ pub enum TrackerError {
 }
 
 pub fn get(
-    torrent: &crate::torrent::Torrent,
+    torrent: &crate::torrent::torrent::Torrent,
     peer_id: &str,
     port: u16,
     uploaded: u64,
