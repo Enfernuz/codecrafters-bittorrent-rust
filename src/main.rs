@@ -1,14 +1,15 @@
 mod bencode;
+mod error;
 mod torrent;
 mod types;
 
-use std::io::{BufWriter, Read, Seek, Write};
-use std::net::TcpStream;
+use std::io::{BufWriter, Write};
 use std::rc::Rc;
 use std::{env, fs};
 
 use bencode::decoder;
-use torrent::peer::HandshakeMessage;
+use error::Error;
+use torrent::message::handshake_message::HandshakeMessage;
 use torrent::peer::Peer;
 use torrent::tracker::{self, TrackerResponse};
 use torrent::Torrent;
@@ -78,8 +79,8 @@ fn main() {
                 let peer_id: [u8; 20] = *b"12345678901234567890";
                 let handshake_message =
                     HandshakeMessage::new(torrent.get_info_hash(), &Rc::new(peer_id));
-                let mut peer = Peer::new(addr);
-                let response = peer.handshake(&handshake_message);
+                let mut peer = Peer::new(addr).ok().unwrap();
+                let response = peer.handshake(&handshake_message).ok().unwrap();
                 println!("{}", &response);
             }
             Err(err) => {
@@ -115,16 +116,16 @@ fn main() {
                         let peer_id: [u8; 20] = *b"12345678901234567890";
                         let handshake_message =
                             HandshakeMessage::new(torrent.get_info_hash(), &Rc::new(peer_id));
-                        let mut peer_0 = Peer::new(&peers[0].clone());
-                        let response = peer_0.handshake(&handshake_message);
+                        let mut peer_0 = Peer::new(&peers[0].clone()).ok().unwrap();
+                        let response = peer_0.handshake(&handshake_message).ok().unwrap();
                         println!("Received handshake: {}", &response);
                         // Handshake end
                         peer_0.receive_bitfield();
                         peer_0.send_interested();
                         peer_0.receive_unchoke();
                         //
-                        let mut peer_1 = Peer::new(&peers[1].clone());
-                        let response = peer_1.handshake(&handshake_message);
+                        let mut peer_1 = Peer::new(&peers[1].clone()).ok().unwrap();
+                        let response = peer_1.handshake(&handshake_message).ok().unwrap();
                         println!("Received handshake: {}", &response);
                         // Handshake end
                         peer_1.receive_bitfield();
@@ -132,8 +133,8 @@ fn main() {
                         peer_1.receive_unchoke();
                         //
                         //
-                        let mut peer_2 = Peer::new(&peers[2].clone());
-                        let response = peer_2.handshake(&handshake_message);
+                        let mut peer_2 = Peer::new(&peers[2].clone()).ok().unwrap();
+                        let response = peer_2.handshake(&handshake_message).ok().unwrap();
                         println!("Received handshake: {}", &response);
                         // Handshake end
                         peer_2.receive_bitfield();
@@ -162,15 +163,15 @@ fn main() {
                                 left as u32
                             };
                             println!("Should receive block of size {block_length} (left {left}).");
-                            let mut res = Err(());
+                            let mut res: Result<Box<[u8]>, Error> = Err(Error::Mock);
                             while res.is_err() {
                                 println!("Getting a block from peer #0...");
                                 res = peer_0.get_piece_block(piece_index, begin, block_length);
                                 if res.is_err() {
                                     println!("Unable to get a block from peer #0.");
-                                    peer_0.shutdown();
-                                    peer_0 = Peer::new(&peers[0].clone());
-                                    let response = peer_0.handshake(&handshake_message);
+                                    peer_0 = Peer::new(&peers[0].clone()).ok().unwrap();
+                                    let response =
+                                        peer_0.handshake(&handshake_message).ok().unwrap();
                                     println!("Received handshake: {}", &response);
                                     // Handshake end
                                     peer_0.receive_bitfield();
@@ -181,9 +182,9 @@ fn main() {
                                 }
                                 if res.is_err() {
                                     println!("Unable to get a block from peer #1.");
-                                    peer_1.shutdown();
-                                    peer_1 = Peer::new(&peers[1].clone());
-                                    let response = peer_1.handshake(&handshake_message);
+                                    peer_1 = Peer::new(&peers[1].clone()).ok().unwrap();
+                                    let response =
+                                        peer_1.handshake(&handshake_message).ok().unwrap();
                                     println!("Received handshake: {}", &response);
                                     // Handshake end
                                     peer_1.receive_bitfield();
@@ -194,9 +195,9 @@ fn main() {
                                 }
                                 if res.is_err() {
                                     println!("Unable to get a block from peer #2.");
-                                    peer_2.shutdown();
-                                    peer_2 = Peer::new(&peers[2].clone());
-                                    let response = peer_2.handshake(&handshake_message);
+                                    peer_2 = Peer::new(&peers[2].clone()).ok().unwrap();
+                                    let response =
+                                        peer_2.handshake(&handshake_message).ok().unwrap();
                                     println!("Received handshake: {}", &response);
                                     // Handshake end
                                     peer_2.receive_bitfield();
@@ -229,13 +230,10 @@ fn main() {
                                 // }
                             }
                             begin += block_length;
-                            file.write_all(&res.unwrap()).unwrap();
+                            file.write_all(&res.ok().unwrap()).unwrap();
                             left -= block_length as u64;
                         }
                         file.flush().unwrap();
-                        peer_0.shutdown();
-                        peer_1.shutdown();
-                        peer_2.shutdown();
                     }
                     TrackerResponse::Failure(reason) => {
                         eprintln!("Got failure response from the tracker: {}", &reason);

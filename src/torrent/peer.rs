@@ -1,141 +1,90 @@
 use std::{
     fmt,
-    io::{BufReader, Read, Write},
+    io::{Read, Write},
     net::TcpStream,
-    rc::Rc,
     time::Duration,
 };
 
+use crate::error::Error;
+use crate::error::Result;
+use crate::torrent::message::HandshakeMessage;
+use crate::torrent::message::Message;
+
 pub struct Peer {
     addr: String,
-    stream: Box<TcpStream>,
-}
-
-pub struct HandshakeMessage {
-    info_hash: Rc<[u8; 20]>,
-    peer_id: Rc<[u8; 20]>,
-}
-
-pub struct Message {
-    tag: MessageTag,
-    payload: Box<[u8]>,
-}
-
-#[derive(Debug)]
-pub enum MessageTag {
-    Choke,
-    Unchoke,
-    Interested,
-    NotInterested,
-    Have,
-    Bitfield,
-    Request,
-    Piece,
-    Cancel,
-}
-
-impl MessageTag {
-    pub fn as_byte(&self) -> u8 {
-        match self {
-            Self::Choke => 0,
-            Self::Unchoke => 1,
-            Self::Interested => 2,
-            Self::NotInterested => 3,
-            Self::Have => 4,
-            Self::Bitfield => 5,
-            Self::Request => 6,
-            Self::Piece => 7,
-            Self::Cancel => 8,
-        }
-    }
-
-    pub fn from_byte(b: u8) -> Self {
-        match b {
-            0 => Self::Choke,
-            1 => Self::Unchoke,
-            2 => Self::Interested,
-            3 => Self::NotInterested,
-            4 => Self::Have,
-            5 => Self::Bitfield,
-            6 => Self::Request,
-            7 => Self::Piece,
-            8 => Self::Cancel,
-            other => panic!("MessageTag::from_byte - {}", other),
-        }
-    }
+    stream: TcpStream,
 }
 
 impl Peer {
-    pub fn new(addr: &str) -> Peer {
-        let stream = TcpStream::connect(addr).expect(&format!("Could not connect to {}", addr));
+    pub fn new(addr: &str) -> Result<Peer> {
+        let stream = TcpStream::connect(addr).map_err(|err| Error::SocketError(err))?;
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
+            .map_err(|err| Error::SocketError(err))?;
         println!("Created TCP connection with {addr}");
-        Peer {
+        Ok(Peer {
             addr: addr.to_owned(),
-            stream: Box::new(stream),
-        }
+            stream: stream,
+        })
     }
 
-    pub fn shutdown(&mut self) {
-        self.stream.shutdown(std::net::Shutdown::Both).unwrap()
-    }
-
-    pub fn handshake(&mut self, message: &HandshakeMessage) -> HandshakeMessage {
-        let stream: &mut TcpStream = self.stream.as_mut();
-        stream
-            .write_all(message.as_bytes().as_ref())
-            .expect(&format!("Could not write to TCP socket for {}", &self.addr));
+    pub fn handshake(&mut self, message: &HandshakeMessage) -> Result<HandshakeMessage> {
+        let bytes: [u8; 68] = message.into();
+        self.stream
+            .write_all(&bytes)
+            .map_err(|err| Error::SocketError(err))?;
         let mut buf: [u8; 68] = [0; 68];
-        stream.read_exact(&mut buf).expect(&format!(
-            "Could not read Handshake from TCP socket for {}",
-            &self.addr
-        ));
-        HandshakeMessage::parse(&buf)
+        self.stream
+            .read_exact(&mut buf)
+            .map_err(|err| Error::SocketError(err))?;
+
+        Ok((&buf).into())
     }
 
-    pub fn receive_bitfield(&mut self) {
+    pub fn receive_bitfield(&mut self) -> Result<Message> {
         println!("receive_bitfield: start");
-        let stream: &mut TcpStream = self.stream.as_mut();
-        let mut buf: [u8; 512] = [0; 512];
-        let recv = stream.read(&mut buf).unwrap();
-        println!("receive_bitfield: received {} bytes", recv);
-        let msg = Message::from_bytes(&buf);
+        let mut length_buf = [0u8; 4];
+        self.stream
+            .read_exact(&mut length_buf)
+            .map_err(|err| Error::SocketError(err))?;
+        let length: u32 = u32::from_be_bytes(length_buf);
+        let mut buf = vec![0u8; length as usize];
+        self.stream
+            .read_exact(&mut buf)
+            .map_err(|err| Error::SocketError(err))?;
+
+        let combined: &[u8] = &[length_buf.as_slice(), buf.as_slice()].concat();
+        println!("receive_bitfield: received {} bytes", combined.len());
+
+        let msg: Message = Message::try_from(combined)?;
         println!("receive_bitfield: {}", &msg);
         println!("receive_bitfield: end");
-        // .expect(&format!("Could not read BitField from TCP socket for {}", &self.addr));
+        Ok(msg)
     }
 
-    pub fn send_interested(&mut self) {
+    pub fn send_interested(&mut self) -> Result<()> {
         println!("send_interested: start");
-        let message = Message {
-            tag: MessageTag::Interested,
-            payload: [].into(),
-        };
-        let stream: &mut TcpStream = self.stream.as_mut();
-        let bytes = message.as_bytes();
+        let bytes: Box<[u8]> = (&Message::interested()).into();
         println!("send_interested: Sending {} bytes", bytes.len());
-        stream
-            .write_all(message.as_bytes().as_ref())
-            .expect(&format!("Could not write to TCP socket for {}", &self.addr));
+        self.stream
+            .write_all(bytes.as_ref())
+            .map_err(|err| Error::SocketError(err))?;
         println!("send_interested: end");
+
+        Ok(())
     }
 
-    pub fn receive_unchoke(&mut self) {
+    pub fn receive_unchoke(&mut self) -> Result<Message> {
         println!("receive_unchoke: start");
-        let stream: &mut TcpStream = self.stream.as_mut();
-        let mut buf: [u8; 512] = [0; 512];
-        let mut received: usize = 0;
-        while received == 0 {
-            let recv = stream.read(&mut buf).unwrap();
-            received += recv;
-        }
-
-        println!("receive_unchoke: received {} bytes", received);
-        let msg = Message::from_bytes(&buf);
+        let mut buf: [u8; 5] = [0; 5];
+        self.stream
+            .read_exact(&mut buf[..])
+            .map_err(|err| Error::SocketError(err))?;
+        println!("receive_unchoke: received {} bytes", buf.len());
+        let msg = Message::try_from(buf.as_slice())?;
         println!("receive_unchoke: {}", &msg);
         println!("receive_unchoke: end");
+        Ok(msg)
     }
 
     pub fn get_piece_block(
@@ -143,152 +92,46 @@ impl Peer {
         piece_index: u32,
         begin: u32,
         block_length: u32,
-    ) -> Result<Box<[u8]>, ()> {
+    ) -> Result<Box<[u8]>> {
         self.send_piece_request(piece_index, begin, block_length);
         self.receive_piece_block(block_length)
     }
 
-    pub fn send_piece_request(&mut self, piece_index: u32, begin: u32, block_length: u32) {
+    pub fn send_piece_request(
+        &mut self,
+        piece_index: u32,
+        begin: u32,
+        block_length: u32,
+    ) -> Result<()> {
         println!("send_piece_request: start");
         println!(
             "send_piece_request: piece_index={}, begin={}, block_length={}",
             piece_index, begin, block_length
         );
-        let mut payload: Vec<u8> = vec![];
-        payload.extend_from_slice(&piece_index.to_be_bytes());
-        payload.extend_from_slice(&begin.to_be_bytes());
-        payload.extend_from_slice(&block_length.to_be_bytes());
-
-        let message = Message {
-            tag: MessageTag::Request,
-            payload: payload.into(),
-        };
-        let stream: &mut TcpStream = self.stream.as_mut();
-        stream
-            .write_all(message.as_bytes().as_ref())
-            .expect(&format!("Could not write to TCP socket for {}", &self.addr));
+        let message = Message::request(piece_index, begin, block_length);
+        let bytes: Box<[u8]> = (&message).into();
+        self.stream
+            .write_all(bytes.as_ref())
+            .map_err(|err| Error::SocketError(err))?;
         println!("send_piece_request: end");
+
+        Ok(())
     }
 
-    pub fn receive_piece_block(&mut self, block_length: u32) -> Result<Box<[u8]>, ()> {
+    pub fn receive_piece_block(&mut self, block_length: u32) -> Result<Box<[u8]>> {
         // Len{4}|Type{1}|Index{4}|Begin{4}|Piece{~}
         println!("receive_piece_block: start");
         println!("receive_piece_block: block_length={}", block_length);
         let capacity: usize = 13 + block_length as usize;
-        let mut stream = BufReader::new(self.stream.as_mut()).take(capacity as u64);
-        let mut buf: Vec<u8> = Vec::with_capacity(capacity);
-        let recv = match stream.read_to_end(&mut buf) {
-            Ok(n) => n,
-            Err(_) => return Err(()),
-        };
+        let mut buf: Vec<u8> = vec![0; capacity];
+        self.stream
+            .read_exact(&mut buf)
+            .map_err(|err| Error::SocketError(err))?;
         println!("receive_piece_block: received {} bytes", buf.len());
-        if recv == 0 {
-            println!("Error: Last received data was {recv} bytes long.");
-            return Err(());
-        }
 
-        let msg = Message::from_bytes(&buf);
+        let msg: Message = Message::try_from(buf.as_slice())?;
         println!("receive_piece_block: {}", &msg);
         println!("receive_piece_block: end");
-        Ok(msg.payload)
-    }
-}
-
-impl HandshakeMessage {
-    pub fn new(info_hash: &Rc<[u8; 20]>, peer_id: &Rc<[u8; 20]>) -> HandshakeMessage {
-        HandshakeMessage {
-            info_hash: info_hash.clone(),
-            peer_id: peer_id.clone(),
-        }
-    }
-
-    pub fn as_bytes(&self) -> [u8; 68] {
-        let mut result: [u8; 68] = [0; 68];
-        result[0] = 19;
-        for (i, byte) in "BitTorrent protocol".as_bytes().iter().enumerate() {
-            result[1 + i] = *byte;
-        }
-        for (i, byte) in self.info_hash.iter().enumerate() {
-            result[28 + i] = *byte;
-        }
-        for (i, byte) in self.peer_id.iter().enumerate() {
-            result[48 + i] = *byte;
-        }
-        result
-    }
-
-    pub fn parse(data: &[u8; 68]) -> Self {
-        let mut info_hash: [u8; 20] = [0; 20];
-        info_hash.copy_from_slice(&data[28..48]);
-        let mut peer_id: [u8; 20] = [0; 20];
-        peer_id.copy_from_slice(&data[48..68]);
-        HandshakeMessage {
-            info_hash: info_hash.into(),
-            peer_id: peer_id.into(),
-        }
-    }
-}
-
-impl fmt::Display for HandshakeMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Peer ID: {}\n", hex::encode(self.peer_id.as_ref()))
-    }
-}
-
-impl fmt::Display for Message {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Type: {:?}, Payload length: {}, \n",
-            self.tag,
-            self.payload.len()
-        )
-    }
-}
-
-impl Message {
-    pub fn as_bytes(&self) -> Box<[u8]> {
-        let mut v: Vec<u8> = vec![];
-        let payload_length = self.payload.len();
-        let length = (1 + payload_length) as u32;
-        v.extend_from_slice(&length.to_be_bytes());
-        v.push(self.tag.as_byte());
-        if payload_length > 0 {
-            v.extend_from_slice(&self.payload.as_ref());
-        }
-
-        v.into_boxed_slice()
-    }
-
-    pub fn from_bytes(data: &[u8]) -> Self {
-        println!("from_bytes: data.len()={}", data.len());
-        // TODO: length check
-        let length = u32::from_be_bytes([data[0], data[1], data[2], data[3]]) as usize;
-        let tag = MessageTag::from_byte(data[4]);
-        println!("from_bytes: PeerMessage: length={}, tag={:?}", length, &tag);
-        match tag {
-            MessageTag::Bitfield => {
-                let payload = &data[5..5 + length];
-                return Message {
-                    tag: MessageTag::Bitfield,
-                    payload: payload.into(),
-                };
-            }
-            MessageTag::Unchoke => {
-                return Message {
-                    tag: MessageTag::Unchoke,
-                    payload: [].into(),
-                }
-            }
-            MessageTag::Piece => {
-                let payload = &data[13..];
-                return Message {
-                    tag: MessageTag::Piece,
-                    payload: payload.into(),
-                };
-            }
-
-            other => panic!("PeerMessage::from_bytes - KEK - {:?}", other),
-        }
+        Ok(msg.get_payload()[8..].into())
     }
 }
