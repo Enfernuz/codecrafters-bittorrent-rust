@@ -1,6 +1,9 @@
 use std::{collections::BTreeMap, string::FromUtf8Error};
 use thiserror::Error;
 
+use crate::bencode::decoders;
+use crate::types::DataType;
+
 #[derive(Error, Debug, PartialEq)]
 pub enum DictDecodeError {
     #[error("The input is empty.")]
@@ -12,7 +15,7 @@ pub enum DictDecodeError {
     #[error("The end of dict ('e') not found.")]
     EndNotFound,
     #[error("Could not decode bencoded key.")]
-    KeyDecodeError(#[from] crate::bencode::decoders::bytestring_decoder::ByteStringDecodeError),
+    KeyDecodeError(#[from] decoders::ByteStringDecodeError),
     #[error("Could not parse bencoded key as UTF-8.")]
     KeyUtf8ParseError(#[from] FromUtf8Error),
     #[error("Could not decode value at {position}")]
@@ -21,7 +24,7 @@ pub enum DictDecodeError {
 
 pub fn decode_dict(
     bencoded: &[u8],
-) -> Result<(BTreeMap<String, crate::types::data_type::DataType>, usize), DictDecodeError> {
+) -> Result<(BTreeMap<String, DataType>, usize), DictDecodeError> {
     if let [start, ..] = bencoded {
         if *start != b'd' {
             return Err(DictDecodeError::StartNotFound {
@@ -30,7 +33,7 @@ pub fn decode_dict(
             });
         }
 
-        let mut dict: BTreeMap<String, crate::types::data_type::DataType> = BTreeMap::new();
+        let mut dict: BTreeMap<String, DataType> = BTreeMap::new();
         let mut pos: usize = 1;
         let mut end_of_dict_found = false;
         while pos < bencoded.len() {
@@ -42,17 +45,17 @@ pub fn decode_dict(
                 }
                 b'0'..=b'9' => {
                     let (key, key_bytes_processed) =
-                        crate::bencode::decoders::bytestring_decoder::decode_byte_string(&bencoded[pos..])?;
+                        decoders::decode_byte_string(&bencoded[pos..])?;
                     let key_str = String::from_utf8(key.get_data().to_vec())?;
                     pos += key_bytes_processed;
-                    let (value, value_bytes_processed) = crate::bencode::decoders::decoder::decode(&bencoded[pos..])
+                    let (value, value_bytes_processed) = decoders::decode(&bencoded[pos..])
                         .map_err(|err| DictDecodeError::ValueDecodeError { position: pos })?;
                     pos += value_bytes_processed;
                     dict.insert(key_str, value);
                 }
                 other => {
                     return Err(DictDecodeError::KeyDecodeError(
-                        crate::bencode::decoders::bytestring_decoder::ByteStringDecodeError::UnexpectedByte {
+                        decoders::ByteStringDecodeError::UnexpectedByte {
                             unexpected_byte: other,
                             unexpected_byte_ascii: other as char,
                             position: pos,
@@ -74,9 +77,9 @@ pub fn decode_dict(
 
 #[cfg(test)]
 mod tests {
-    use crate::types::byte_string::ByteString;
 
     use super::*;
+    use crate::types::ByteString;
 
     #[test]
     fn test_empty_dict() {
@@ -91,10 +94,7 @@ mod tests {
         assert_eq!(bytes_processed, 14);
         assert_eq!(
             result,
-            BTreeMap::from_iter([(
-                "hello".into(),
-                crate::types::data_type::DataType::Integer(123)
-            )])
+            BTreeMap::from_iter([("hello".into(), DataType::Integer(123))])
         );
     }
 
@@ -106,9 +106,7 @@ mod tests {
             result,
             BTreeMap::from_iter([(
                 "hello".into(),
-                crate::types::data_type::DataType::ByteString(ByteString::new(
-                    &"username".as_bytes().into()
-                ))
+                DataType::ByteString(ByteString::new(&"username".as_bytes().into()))
             )])
         );
     }
@@ -122,13 +120,9 @@ mod tests {
             result,
             BTreeMap::from_iter([(
                 "world".into(),
-                crate::types::data_type::DataType::List(vec![
-                    crate::types::data_type::DataType::ByteString(ByteString::new(
-                        &"Asia".as_bytes().into()
-                    )),
-                    crate::types::data_type::DataType::ByteString(ByteString::new(
-                        &"Europe".as_bytes().into()
-                    )),
+                DataType::List(vec![
+                    DataType::ByteString(ByteString::new(&"Asia".as_bytes().into())),
+                    DataType::ByteString(ByteString::new(&"Europe".as_bytes().into())),
                 ])
             )])
         );
@@ -144,11 +138,9 @@ mod tests {
             BTreeMap::from_iter([
                 (
                     "hello".into(),
-                    crate::types::data_type::DataType::ByteString(ByteString::new(
-                        &"username".as_bytes().into()
-                    ))
+                    DataType::ByteString(ByteString::new(&"username".as_bytes().into()))
                 ),
-                ("age".into(), crate::types::data_type::DataType::Integer(42))
+                ("age".into(), DataType::Integer(42))
             ])
         );
     }
@@ -164,18 +156,14 @@ mod tests {
             BTreeMap::from_iter([
                 (
                     "hello".into(),
-                    crate::types::data_type::DataType::ByteString(ByteString::new(
-                        &"username".as_bytes().into()
-                    ))
+                    DataType::ByteString(ByteString::new(&"username".as_bytes().into()))
                 ),
-                ("age".into(), crate::types::data_type::DataType::Integer(42),),
+                ("age".into(), DataType::Integer(42),),
                 (
                     "passwords".into(),
-                    crate::types::data_type::DataType::List(vec![
-                        crate::types::data_type::DataType::ByteString(ByteString::new(
-                            &"abc".as_bytes().into()
-                        )),
-                        crate::types::data_type::DataType::Integer(12345)
+                    DataType::List(vec![
+                        DataType::ByteString(ByteString::new(&"abc".as_bytes().into())),
+                        DataType::Integer(12345)
                     ])
                 )
             ])

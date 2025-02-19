@@ -2,7 +2,7 @@ use std::num::ParseIntError;
 
 use thiserror::Error;
 
-use crate::types::byte_string::ByteString;
+use crate::types::ByteString;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ByteStringDecodeError {

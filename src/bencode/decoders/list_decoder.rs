@@ -2,6 +2,9 @@ use std::rc::Rc;
 
 use thiserror::Error;
 
+use crate::bencode::decoders;
+use crate::types::DataType;
+
 #[derive(Error, Debug, PartialEq)]
 pub enum ListDecodeError {
     #[error("The input is empty.")]
@@ -16,9 +19,7 @@ pub enum ListDecodeError {
     ElementDecodeError { position: usize },
 }
 
-pub fn decode_list(
-    bencoded: &[u8],
-) -> Result<(Rc<[crate::types::data_type::DataType]>, usize), ListDecodeError> {
+pub fn decode_list(bencoded: &[u8]) -> Result<(Rc<[DataType]>, usize), ListDecodeError> {
     if let [start, ..] = bencoded {
         if *start != b'l' {
             return Err(ListDecodeError::StartNotFound {
@@ -27,7 +28,7 @@ pub fn decode_list(
             });
         }
 
-        let mut decoded_elements: Vec<crate::types::data_type::DataType> = vec![];
+        let mut decoded_elements: Vec<DataType> = vec![];
         let mut pos: usize = 1;
         let mut end_of_list_found = false;
         while pos < bencoded.len() {
@@ -38,9 +39,8 @@ pub fn decode_list(
                     break;
                 }
                 _ => {
-                    let (decoded_element, bytes_processed) =
-                        crate::bencode::decoders::decoder::decode(&bencoded[pos..])
-                            .map_err(|err| ListDecodeError::ElementDecodeError { position: pos })?;
+                    let (decoded_element, bytes_processed) = decoders::decode(&bencoded[pos..])
+                        .map_err(|err| ListDecodeError::ElementDecodeError { position: pos })?;
                     decoded_elements.push(decoded_element);
                     pos += bytes_processed;
                 }
@@ -59,7 +59,7 @@ pub fn decode_list(
 
 #[cfg(test)]
 mod tests {
-    use crate::types::byte_string::ByteString;
+    use crate::types::ByteString;
 
     use super::*;
 
@@ -75,7 +75,7 @@ mod tests {
         let (result, bytes_processed) = decode_list("li12345ee".as_bytes()).unwrap();
         assert_eq!(bytes_processed, 9);
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], crate::types::data_type::DataType::Integer(12345));
+        assert_eq!(result[0], DataType::Integer(12345));
     }
 
     #[test]
@@ -83,11 +83,8 @@ mod tests {
         let (result, bytes_processed) = decode_list("li12345ei-100500ee".as_bytes()).unwrap();
         assert_eq!(bytes_processed, 18);
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0], crate::types::data_type::DataType::Integer(12345));
-        assert_eq!(
-            result[1],
-            crate::types::data_type::DataType::Integer(-100500)
-        );
+        assert_eq!(result[0], DataType::Integer(12345));
+        assert_eq!(result[1], DataType::Integer(-100500));
     }
 
     #[test]
@@ -95,12 +92,10 @@ mod tests {
         let (result, bytes_processed) = decode_list("li12345e5:helloe".as_bytes()).unwrap();
         assert_eq!(bytes_processed, 16);
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0], crate::types::data_type::DataType::Integer(12345));
+        assert_eq!(result[0], DataType::Integer(12345));
         assert_eq!(
             result[1],
-            crate::types::data_type::DataType::ByteString(ByteString::new(
-                &"hello".as_bytes().into()
-            ))
+            DataType::ByteString(ByteString::new(&"hello".as_bytes().into()))
         );
     }
 
@@ -111,11 +106,9 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(
             result[0],
-            crate::types::data_type::DataType::ByteString(ByteString::new(
-                &"hello".as_bytes().into()
-            ))
+            DataType::ByteString(ByteString::new(&"hello".as_bytes().into()))
         );
-        assert_eq!(result[1], crate::types::data_type::DataType::Integer(12345));
+        assert_eq!(result[1], DataType::Integer(12345));
     }
 
     #[test]
@@ -123,7 +116,7 @@ mod tests {
         let (result, bytes_processed) = decode_list("llee".as_bytes()).unwrap();
         assert_eq!(bytes_processed, 4);
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], crate::types::data_type::DataType::List(vec![]));
+        assert_eq!(result[0], DataType::List(vec![]));
     }
 
     #[test]
@@ -133,10 +126,7 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(
             result[0],
-            crate::types::data_type::DataType::List(vec![
-                crate::types::data_type::DataType::Integer(456),
-                crate::types::data_type::DataType::Integer(-10)
-            ])
+            DataType::List(vec![DataType::Integer(456), DataType::Integer(-10)])
         );
     }
 
@@ -147,13 +137,9 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(
             result[0],
-            crate::types::data_type::DataType::List(vec![
-                crate::types::data_type::DataType::ByteString(ByteString::new(
-                    &"Hello, ".as_bytes().into()
-                )),
-                crate::types::data_type::DataType::ByteString(ByteString::new(
-                    &"World!".as_bytes().into()
-                ))
+            DataType::List(vec![
+                DataType::ByteString(ByteString::new(&"Hello, ".as_bytes().into())),
+                DataType::ByteString(ByteString::new(&"World!".as_bytes().into()))
             ])
         );
     }
@@ -165,11 +151,9 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(
             result[0],
-            crate::types::data_type::DataType::List(vec![
-                crate::types::data_type::DataType::ByteString(ByteString::new(
-                    &"hello".as_bytes().into()
-                )),
-                crate::types::data_type::DataType::Integer(123)
+            DataType::List(vec![
+                DataType::ByteString(ByteString::new(&"hello".as_bytes().into())),
+                DataType::Integer(123)
             ])
         );
     }
@@ -181,18 +165,11 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(
             result[0],
-            crate::types::data_type::DataType::List(vec![
-                crate::types::data_type::DataType::ByteString(ByteString::new(
-                    &"hello".as_bytes().into()
-                ))
-            ])
+            DataType::List(vec![DataType::ByteString(ByteString::new(
+                &"hello".as_bytes().into()
+            ))])
         );
-        assert_eq!(
-            result[1],
-            crate::types::data_type::DataType::List(vec![
-                crate::types::data_type::DataType::Integer(123)
-            ])
-        );
+        assert_eq!(result[1], DataType::List(vec![DataType::Integer(123)]));
     }
 
     #[test]
@@ -202,13 +179,11 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(
             result[0],
-            crate::types::data_type::DataType::List(vec![
-                crate::types::data_type::DataType::ByteString(ByteString::new(
-                    &"hello".as_bytes().into()
-                ))
-            ])
+            DataType::List(vec![DataType::ByteString(ByteString::new(
+                &"hello".as_bytes().into()
+            ))])
         );
-        assert_eq!(result[1], crate::types::data_type::DataType::Integer(123));
+        assert_eq!(result[1], DataType::Integer(123));
     }
 
     #[test]
@@ -216,14 +191,12 @@ mod tests {
         let (result, bytes_processed) = decode_list("li123el5:helloee".as_bytes()).unwrap();
         assert_eq!(bytes_processed, 16);
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0], crate::types::data_type::DataType::Integer(123));
+        assert_eq!(result[0], DataType::Integer(123));
         assert_eq!(
             result[1],
-            crate::types::data_type::DataType::List(vec![
-                crate::types::data_type::DataType::ByteString(ByteString::new(
-                    &"hello".as_bytes().into()
-                ))
-            ])
+            DataType::List(vec![DataType::ByteString(ByteString::new(
+                &"hello".as_bytes().into()
+            ))])
         );
     }
 
@@ -234,17 +207,13 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(
             result[0],
-            crate::types::data_type::DataType::List(vec![
-                crate::types::data_type::DataType::ByteString(ByteString::new(
-                    &"hello".as_bytes().into()
-                ))
-            ])
+            DataType::List(vec![DataType::ByteString(ByteString::new(
+                &"hello".as_bytes().into()
+            ))])
         );
         assert_eq!(
             result[1],
-            crate::types::data_type::DataType::ByteString(ByteString::new(
-                &"abc".as_bytes().into()
-            ))
+            DataType::ByteString(ByteString::new(&"abc".as_bytes().into()))
         );
     }
 
@@ -255,17 +224,13 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(
             result[0],
-            crate::types::data_type::DataType::ByteString(ByteString::new(
-                &"abc".as_bytes().into()
-            ))
+            DataType::ByteString(ByteString::new(&"abc".as_bytes().into()))
         );
         assert_eq!(
             result[1],
-            crate::types::data_type::DataType::List(vec![
-                crate::types::data_type::DataType::ByteString(ByteString::new(
-                    &"hello".as_bytes().into()
-                ))
-            ])
+            DataType::List(vec![DataType::ByteString(ByteString::new(
+                &"hello".as_bytes().into()
+            ))])
         );
     }
 
