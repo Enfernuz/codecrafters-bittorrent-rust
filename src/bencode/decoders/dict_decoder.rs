@@ -12,7 +12,7 @@ pub enum DictDecodeError {
     #[error("The end of dict ('e') not found.")]
     EndNotFound,
     #[error("Could not decode bencoded key.")]
-    KeyDecodeError(#[from] crate::bencode::decoder::bytestring_decoder::ByteStringDecodeError),
+    KeyDecodeError(#[from] crate::bencode::decoders::bytestring_decoder::ByteStringDecodeError),
     #[error("Could not parse bencoded key as UTF-8.")]
     KeyUtf8ParseError(#[from] FromUtf8Error),
     #[error("Could not decode value at {position}")]
@@ -42,17 +42,17 @@ pub fn decode_dict(
                 }
                 b'0'..=b'9' => {
                     let (key, key_bytes_processed) =
-                        crate::bencode::decoder::bytestring_decoder::decode_byte_string(&bencoded[pos..])?;
+                        crate::bencode::decoders::bytestring_decoder::decode_byte_string(&bencoded[pos..])?;
                     let key_str = String::from_utf8(key.get_data().to_vec())?;
                     pos += key_bytes_processed;
-                    let (value, value_bytes_processed) = crate::bencode::decoder::decoder::decode(&bencoded[pos..])
+                    let (value, value_bytes_processed) = crate::bencode::decoders::decoder::decode(&bencoded[pos..])
                         .map_err(|err| DictDecodeError::ValueDecodeError { position: pos })?;
                     pos += value_bytes_processed;
                     dict.insert(key_str, value);
                 }
                 other => {
                     return Err(DictDecodeError::KeyDecodeError(
-                        crate::bencode::decoder::bytestring_decoder::ByteStringDecodeError::UnexpectedByte {
+                        crate::bencode::decoders::bytestring_decoder::ByteStringDecodeError::UnexpectedByte {
                             unexpected_byte: other,
                             unexpected_byte_ascii: other as char,
                             position: pos,

@@ -1,2 +1,2 @@
-pub(crate) mod decoder;
-pub(crate) mod encoder;
+pub(crate) mod decoders;
+pub(crate) mod encoders;

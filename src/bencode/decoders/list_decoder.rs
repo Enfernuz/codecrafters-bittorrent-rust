@@ -39,7 +39,7 @@ pub fn decode_list(
                 }
                 _ => {
                     let (decoded_element, bytes_processed) =
-                        crate::bencode::decoder::decoder::decode(&bencoded[pos..])
+                        crate::bencode::decoders::decoder::decode(&bencoded[pos..])
                             .map_err(|err| ListDecodeError::ElementDecodeError { position: pos })?;
                     decoded_elements.push(decoded_element);
                     pos += bytes_processed;

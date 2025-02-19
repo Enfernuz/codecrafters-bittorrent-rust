@@ -9,7 +9,7 @@ type Result<T> = core::result::Result<T, Error>;
 #[derive(Error, Debug, PartialEq)]
 pub enum TorrentParseError {
     #[error("Decode error")]
-    DecodeError(#[from] crate::bencode::decoder::error::DecodeError),
+    DecodeError(#[from] crate::bencode::decoders::error::DecodeError),
     #[error("Invalid meta info")]
     InvalidMetaInfo(String),
 }
@@ -48,7 +48,7 @@ impl TryFrom<&[u8]> for Torrent {
     type Error = Error;
 
     fn try_from(data: &[u8]) -> Result<Self> {
-        let (decoded, _) = crate::bencode::decoder::decoder::decode(data)?;
+        let (decoded, _) = crate::bencode::decoders::decoder::decode(data)?;
         Torrent::try_from(&decoded)
     }
 }
@@ -98,7 +98,7 @@ impl TryFrom<&crate::types::data_type::DataType> for Torrent {
                             "Could not convert the value of the 'length' key to i64.".to_owned(),
                         )
                     })? as u64;
-                let info_bencoded: &[u8] = &crate::bencode::encoder::encoder::bencode(info);
+                let info_bencoded: &[u8] = &crate::bencode::encoders::encoder::bencode(info);
                 let mut hasher = Sha1::new();
                 hasher.update(info_bencoded);
                 let sha1_hash = hasher.finalize();

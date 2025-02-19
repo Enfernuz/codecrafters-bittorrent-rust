@@ -26,8 +26,8 @@ fn main() {
         let encoded_value = &args[2];
         let result: Result<
             (crate::types::data_type::DataType, usize),
-            crate::bencode::decoder::error::DecodeError,
-        > = crate::bencode::decoder::decoder::decode(encoded_value.as_bytes());
+            crate::bencode::decoders::error::DecodeError,
+        > = crate::bencode::decoders::decoder::decode(encoded_value.as_bytes());
         match result {
             Ok((decoded, _)) => {
                 let json: serde_json::Value = decoded.into();

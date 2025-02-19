@@ -6,14 +6,14 @@ pub enum DecodeError {
     EmptyInput,
     #[error("ByteString decode error")]
     ByteStringDecodeError(
-        #[from] crate::bencode::decoder::bytestring_decoder::ByteStringDecodeError,
+        #[from] crate::bencode::decoders::bytestring_decoder::ByteStringDecodeError,
     ),
     #[error("Int64 decode error")]
-    Int64DecodeError(#[from] crate::bencode::decoder::i64_decoder::Int64DecodeError),
+    Int64DecodeError(#[from] crate::bencode::decoders::i64_decoder::Int64DecodeError),
     #[error("List decode error")]
-    ListDecodeError(#[from] crate::bencode::decoder::list_decoder::ListDecodeError),
+    ListDecodeError(#[from] crate::bencode::decoders::list_decoder::ListDecodeError),
     #[error("Dict decode error")]
-    DictDecodeError(#[from] crate::bencode::decoder::dict_decoder::DictDecodeError),
+    DictDecodeError(#[from] crate::bencode::decoders::dict_decoder::DictDecodeError),
     #[error("Other")]
     Other(String),
 }
