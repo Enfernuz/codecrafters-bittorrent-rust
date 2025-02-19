@@ -3,21 +3,13 @@ use std::{collections::HashMap, fmt, rc::Rc};
 use sha1::{Digest, Sha1};
 use thiserror::Error;
 
-use crate::{
-    bencode::{
-        decoder::{self, DecodeError},
-        encoder,
-    },
-    types::{byte_string::ByteString, DataType},
-};
-
 type Error = TorrentParseError;
 type Result<T> = core::result::Result<T, Error>;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum TorrentParseError {
     #[error("Decode error")]
-    DecodeError(#[from] DecodeError),
+    DecodeError(#[from] crate::bencode::decoder::error::DecodeError),
     #[error("Invalid meta info")]
     InvalidMetaInfo(String),
 }
@@ -56,18 +48,18 @@ impl TryFrom<&[u8]> for Torrent {
     type Error = Error;
 
     fn try_from(data: &[u8]) -> Result<Self> {
-        let (decoded, _) = decoder::decode(data)?;
+        let (decoded, _) = crate::bencode::decoder::decoder::decode(data)?;
         Torrent::try_from(&decoded)
     }
 }
 
-impl TryFrom<&DataType> for Torrent {
+impl TryFrom<&crate::types::data_type::DataType> for Torrent {
     type Error = Error;
 
-    fn try_from(data: &DataType) -> Result<Self> {
+    fn try_from(data: &crate::types::data_type::DataType) -> Result<Self> {
         match data {
-            DataType::Dict(v) => {
-                let mut map: HashMap<String, DataType> = HashMap::new();
+            crate::types::data_type::DataType::Dict(v) => {
+                let mut map: HashMap<String, crate::types::data_type::DataType> = HashMap::new();
                 for (key, value) in v {
                     map.insert(key.clone(), value.clone());
                 }
@@ -106,7 +98,7 @@ impl TryFrom<&DataType> for Torrent {
                             "Could not convert the value of the 'length' key to i64.".to_owned(),
                         )
                     })? as u64;
-                let info_bencoded: &[u8] = &encoder::bencode(info);
+                let info_bencoded: &[u8] = &crate::bencode::encoder::encoder::bencode(info);
                 let mut hasher = Sha1::new();
                 hasher.update(info_bencoded);
                 let sha1_hash = hasher.finalize();
@@ -124,7 +116,7 @@ impl TryFrom<&DataType> for Torrent {
                                 .to_owned(),
                         )
                     })? as u64;
-                let pieces_byte_string: &ByteString = info_as_dict
+                let pieces_byte_string: &crate::types::byte_string::ByteString = info_as_dict
                     .get("pieces")
                     .ok_or_else(|| {
                         TorrentParseError::InvalidMetaInfo(
@@ -173,7 +165,7 @@ impl fmt::Display for Torrent {
     }
 }
 
-fn parse_pieces(byte_str: &ByteString) -> Rc<[[u8; 20]]> {
+fn parse_pieces(byte_str: &crate::types::byte_string::ByteString) -> Rc<[[u8; 20]]> {
     let mut pieces: Vec<[u8; 20]> = vec![];
     // TODO: replace with an actual error
     assert!(

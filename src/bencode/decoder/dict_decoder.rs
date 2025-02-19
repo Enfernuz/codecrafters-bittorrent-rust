@@ -1,10 +1,5 @@
 use std::{collections::BTreeMap, string::FromUtf8Error};
-
 use thiserror::Error;
-
-use crate::{bencode::decoder::bytestring_decoder, types::DataType};
-
-use super::bytestring_decoder::ByteStringDecodeError;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum DictDecodeError {
@@ -17,7 +12,7 @@ pub enum DictDecodeError {
     #[error("The end of dict ('e') not found.")]
     EndNotFound,
     #[error("Could not decode bencoded key.")]
-    KeyDecodeError(#[from] ByteStringDecodeError),
+    KeyDecodeError(#[from] crate::bencode::decoder::bytestring_decoder::ByteStringDecodeError),
     #[error("Could not parse bencoded key as UTF-8.")]
     KeyUtf8ParseError(#[from] FromUtf8Error),
     #[error("Could not decode value at {position}")]
@@ -26,7 +21,7 @@ pub enum DictDecodeError {
 
 pub fn decode_dict(
     bencoded: &[u8],
-) -> Result<(BTreeMap<String, DataType>, usize), DictDecodeError> {
+) -> Result<(BTreeMap<String, crate::types::data_type::DataType>, usize), DictDecodeError> {
     if let [start, ..] = bencoded {
         if *start != b'd' {
             return Err(DictDecodeError::StartNotFound {
@@ -35,7 +30,7 @@ pub fn decode_dict(
             });
         }
 
-        let mut dict: BTreeMap<String, DataType> = BTreeMap::new();
+        let mut dict: BTreeMap<String, crate::types::data_type::DataType> = BTreeMap::new();
         let mut pos: usize = 1;
         let mut end_of_dict_found = false;
         while pos < bencoded.len() {
@@ -47,17 +42,17 @@ pub fn decode_dict(
                 }
                 b'0'..=b'9' => {
                     let (key, key_bytes_processed) =
-                        bytestring_decoder::decode_byte_string(&bencoded[pos..])?;
+                        crate::bencode::decoder::bytestring_decoder::decode_byte_string(&bencoded[pos..])?;
                     let key_str = String::from_utf8(key.get_data().to_vec())?;
                     pos += key_bytes_processed;
-                    let (value, value_bytes_processed) = super::decode(&bencoded[pos..])
+                    let (value, value_bytes_processed) = crate::bencode::decoder::decoder::decode(&bencoded[pos..])
                         .map_err(|err| DictDecodeError::ValueDecodeError { position: pos })?;
                     pos += value_bytes_processed;
                     dict.insert(key_str, value);
                 }
                 other => {
                     return Err(DictDecodeError::KeyDecodeError(
-                        ByteStringDecodeError::UnexpectedByte {
+                        crate::bencode::decoder::bytestring_decoder::ByteStringDecodeError::UnexpectedByte {
                             unexpected_byte: other,
                             unexpected_byte_ascii: other as char,
                             position: pos,
@@ -96,7 +91,10 @@ mod tests {
         assert_eq!(bytes_processed, 14);
         assert_eq!(
             result,
-            BTreeMap::from_iter([("hello".into(), DataType::Integer(123))])
+            BTreeMap::from_iter([(
+                "hello".into(),
+                crate::types::data_type::DataType::Integer(123)
+            )])
         );
     }
 
@@ -108,7 +106,9 @@ mod tests {
             result,
             BTreeMap::from_iter([(
                 "hello".into(),
-                DataType::ByteString(ByteString::new(&"username".as_bytes().into()))
+                crate::types::data_type::DataType::ByteString(ByteString::new(
+                    &"username".as_bytes().into()
+                ))
             )])
         );
     }
@@ -122,9 +122,13 @@ mod tests {
             result,
             BTreeMap::from_iter([(
                 "world".into(),
-                DataType::List(vec![
-                    DataType::ByteString(ByteString::new(&"Asia".as_bytes().into())),
-                    DataType::ByteString(ByteString::new(&"Europe".as_bytes().into())),
+                crate::types::data_type::DataType::List(vec![
+                    crate::types::data_type::DataType::ByteString(ByteString::new(
+                        &"Asia".as_bytes().into()
+                    )),
+                    crate::types::data_type::DataType::ByteString(ByteString::new(
+                        &"Europe".as_bytes().into()
+                    )),
                 ])
             )])
         );
@@ -140,9 +144,11 @@ mod tests {
             BTreeMap::from_iter([
                 (
                     "hello".into(),
-                    DataType::ByteString(ByteString::new(&"username".as_bytes().into()))
+                    crate::types::data_type::DataType::ByteString(ByteString::new(
+                        &"username".as_bytes().into()
+                    ))
                 ),
-                ("age".into(), DataType::Integer(42))
+                ("age".into(), crate::types::data_type::DataType::Integer(42))
             ])
         );
     }
@@ -158,14 +164,18 @@ mod tests {
             BTreeMap::from_iter([
                 (
                     "hello".into(),
-                    DataType::ByteString(ByteString::new(&"username".as_bytes().into()))
+                    crate::types::data_type::DataType::ByteString(ByteString::new(
+                        &"username".as_bytes().into()
+                    ))
                 ),
-                ("age".into(), DataType::Integer(42),),
+                ("age".into(), crate::types::data_type::DataType::Integer(42),),
                 (
                     "passwords".into(),
-                    DataType::List(vec![
-                        DataType::ByteString(ByteString::new(&"abc".as_bytes().into())),
-                        DataType::Integer(12345)
+                    crate::types::data_type::DataType::List(vec![
+                        crate::types::data_type::DataType::ByteString(ByteString::new(
+                            &"abc".as_bytes().into()
+                        )),
+                        crate::types::data_type::DataType::Integer(12345)
                     ])
                 )
             ])

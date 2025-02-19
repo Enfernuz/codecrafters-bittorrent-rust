@@ -1,7 +1,5 @@
 use std::{collections::BTreeMap, rc::Rc};
 
-use crate::types::{byte_string::ByteString, DataType};
-
 pub fn bencode_i64(value: i64) -> Rc<[u8]> {
     let mut v: Vec<u8> = vec![b'i'];
     v.extend_from_slice(value.to_string().as_bytes());
@@ -9,7 +7,7 @@ pub fn bencode_i64(value: i64) -> Rc<[u8]> {
     v.into()
 }
 
-pub fn bencode_byte_string(value: &ByteString) -> Rc<[u8]> {
+pub fn bencode_byte_string(value: &crate::types::byte_string::ByteString) -> Rc<[u8]> {
     let mut result: Vec<u8> = vec![];
     result.extend_from_slice(value.get_data().len().to_string().as_bytes());
     result.push(b':');
@@ -17,7 +15,7 @@ pub fn bencode_byte_string(value: &ByteString) -> Rc<[u8]> {
     result.into()
 }
 
-pub fn bencode_list(list: &Vec<DataType>) -> Rc<[u8]> {
+pub fn bencode_list(list: &Vec<crate::types::data_type::DataType>) -> Rc<[u8]> {
     let mut result: Vec<u8> = vec![b'l'];
     for element in list {
         result.extend_from_slice(&bencode(element));
@@ -35,7 +33,7 @@ pub fn bencode_string(value: &str) -> Rc<[u8]> {
     result.into()
 }
 
-pub fn bencode_dict(dict: &BTreeMap<String, DataType>) -> Rc<[u8]> {
+pub fn bencode_dict(dict: &BTreeMap<String, crate::types::data_type::DataType>) -> Rc<[u8]> {
     let mut result: Vec<u8> = vec![b'd'];
     for (key, value) in dict {
         result.extend_from_slice(&bencode_string(key));
@@ -45,11 +43,11 @@ pub fn bencode_dict(dict: &BTreeMap<String, DataType>) -> Rc<[u8]> {
     result.into()
 }
 
-pub fn bencode(value: &DataType) -> Rc<[u8]> {
+pub fn bencode(value: &crate::types::data_type::DataType) -> Rc<[u8]> {
     match value {
-        DataType::Integer(num) => bencode_i64(*num),
-        DataType::ByteString(byte_str) => bencode_byte_string(byte_str),
-        DataType::List(list) => bencode_list(list),
-        DataType::Dict(dict) => bencode_dict(dict),
+        crate::types::data_type::DataType::Integer(num) => bencode_i64(*num),
+        crate::types::data_type::DataType::ByteString(byte_str) => bencode_byte_string(byte_str),
+        crate::types::data_type::DataType::List(list) => bencode_list(list),
+        crate::types::data_type::DataType::Dict(dict) => bencode_dict(dict),
     }
 }
