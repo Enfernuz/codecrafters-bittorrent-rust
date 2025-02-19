@@ -7,6 +7,6 @@ pub(crate) mod message;
 // endregion:   --- Modules
 
 // region:      --- Flatten (private, crate, public)
-// pub(crate) use handshake_message::*;
-// pub(crate) use message::*;
+pub(crate) use handshake_message::*;
+pub(crate) use message::*;
 // endregion:   --- Flatten (private, crate, public)

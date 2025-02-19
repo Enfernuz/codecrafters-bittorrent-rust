@@ -1,5 +1,8 @@
 use thiserror::Error;
 
+use crate::bencode::decoders;
+use crate::torrent::Torrent;
+
 pub enum TrackerResponse {
     Ok { interval: u32, peers: Box<[String]> },
     Failure(String),
@@ -20,13 +23,13 @@ pub enum TrackerError {
     #[error("HTTP Error")]
     Http(#[from] reqwest::Error),
     #[error("Decode Error")]
-    Decode(#[from] crate::bencode::decoders::error::DecodeError),
+    Decode(#[from] decoders::error::DecodeError),
     #[error("Invalid Response: {0}")]
     InvalidResponse(String),
 }
 
 pub fn get(
-    torrent: &crate::torrent::torrent::Torrent,
+    torrent: &Torrent,
     peer_id: &str,
     port: u16,
     uploaded: u64,
@@ -37,7 +40,7 @@ pub fn get(
     let tracker_url: &str = torrent.get_announce();
     let url = format!("{tracker_url}?info_hash={urlencoded_info_hash}&peer_id={peer_id}&port={port}&uploaded={uploaded}&downloaded={downloaded}&left={left}&compact=1");
     let res = reqwest::blocking::get(url)?;
-    let (body, _) = crate::bencode::decoders::decoder::decode(&res.bytes()?.as_ref())?;
+    let (body, _) = decoders::decode(&res.bytes()?.as_ref())?;
     let body_dict = body.as_dict().ok_or_else(|| {
         TrackerError::InvalidResponse("Could not find the 'info' key.".to_owned())
     })?;
