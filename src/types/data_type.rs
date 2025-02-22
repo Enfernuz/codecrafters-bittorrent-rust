@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
 
+use crate::types::ByteString;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum DataType {
     Integer(i64),
-    ByteString(crate::types::byte_string::ByteString),
+    ByteString(ByteString),
     List(Vec<DataType>),
     Dict(BTreeMap<String, DataType>),
 }
@@ -30,7 +32,7 @@ impl DataType {
         }
     }
 
-    pub fn as_byte_string(&self) -> Option<&crate::types::byte_string::ByteString> {
+    pub fn as_byte_string(&self) -> Option<&ByteString> {
         match self {
             Self::ByteString(byte_str) => Some(byte_str),
             _ => None,

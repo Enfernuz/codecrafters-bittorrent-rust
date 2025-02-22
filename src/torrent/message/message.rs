@@ -137,7 +137,7 @@ impl TryFrom<&[u8]> for Message {
                 } else {
                     &slice[13..message_len as usize + 4]
                 };
-                println!("Writing block size of {}", block.len());
+                // println!("Writing block size of {}", block.len());
                 Ok(Message::piece(index, begin, block))
             }
             other => Err(Error::MessageParsingNotImplemented(other))?,

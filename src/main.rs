@@ -9,7 +9,8 @@ use std::{
     cell::RefCell,
     env,
     fs::{self, File},
-    io::{BufWriter, Seek, Write},
+    io::{BufWriter, Read, Seek, Write},
+    os::unix::fs::FileExt,
     rc::Rc,
     sync::{Arc, Mutex},
     thread,
@@ -125,28 +126,42 @@ fn main() -> Result<()> {
         let torrent = parse_torrent_from_file(&torrent_file_path)?;
         let pieces: Box<[Piece]> = get_pieces(&torrent);
 
+        let sum: u32 = pieces.iter().map(|p| p.length).sum();
+        println!(
+            "Torrent length: {}, pieces sum: {}",
+            torrent.get_length(),
+            sum
+        );
+
         let peer_addresses = get_peers(&torrent).unwrap();
 
         let mut file = fs::File::create(out_file_path).map_err(|err| Error::FileError(err))?;
         reserve_space(&mut file, torrent.get_length())?;
 
+        for p in pieces.as_ref() {
+            println!("Piece #{}: pos={}, length = {}", p.index, p.pos, p.length);
+        }
+
         let chunk_size = pieces.len() / peer_addresses.len();
         let mut handles = Vec::new();
         // Convert `Box<[Piece]>` into `Vec<Piece>` to consume it
         let mut pieces_vec: Vec<Piece> = pieces.into_vec();
+        println!("Pieces overall: {}", pieces_vec.len());
 
         let file_shared: Arc<Mutex<File>> = Arc::new(Mutex::new(file));
-        for peer_addr in peer_addresses.as_ref() {
-            let job_size: usize = if pieces_vec.len() > chunk_size {
-                chunk_size
-            } else {
+        for (i, peer_addr) in peer_addresses.as_ref().iter().enumerate() {
+            let job_size: usize = if i == peer_addresses.len() - 1 {
                 pieces_vec.len()
+            } else {
+                chunk_size
             };
             let chunk: Vec<Piece> = pieces_vec.drain(..job_size).collect();
+
             let chunk_boxed: Box<[Piece]> = chunk.into_boxed_slice();
             let file_clone = Arc::clone(&file_shared);
             let h = *torrent.get_info_hash().as_ref();
             let addr = peer_addr.clone();
+            println!("Peer {} received {} pieces job.", &addr, chunk_boxed.len());
             let handle = thread::spawn(move || {
                 let mut peer = Peer::new(addr).unwrap();
                 let handshake_message = HandshakeMessage::new(&Rc::new(h), &Rc::new(PEER_ID_BYTES));
@@ -163,10 +178,10 @@ fn main() -> Result<()> {
                 peer.receive_unchoke().unwrap();
                 for piece in chunk_boxed {
                     let data = download_piece(&mut peer, &piece).unwrap();
-                    let mut writer = file_clone.lock().unwrap();
-                    writer.seek(std::io::SeekFrom::Start(piece.pos)).unwrap();
-                    writer.write_all(&data).unwrap();
-                    writer.flush().unwrap();
+                    let mut file = file_clone.lock().unwrap();
+
+                    file.write_all_at(&data, piece.pos).unwrap();
+                    file.flush().unwrap();
                 }
             });
             handles.push(handle);
@@ -198,6 +213,7 @@ struct Piece {
     hash: [u8; 20],
     blocks: Vec<PieceBlock>,
     pos: u64,
+    length: u32,
 }
 
 struct PieceBlock {
@@ -232,9 +248,16 @@ fn get_pieces(torrent: &Torrent) -> Box<[Piece]> {
             hash: *hash,
             blocks: blocks,
             pos: pos,
+            length: piece_length,
         });
         pos += piece_length as u64;
     }
+
+    println!(
+        "get_pieces: from torrent = {}, actual = {}",
+        pieces.len(),
+        result.len()
+    );
 
     result.into_boxed_slice()
 }
@@ -386,24 +409,28 @@ fn get_actual_piece_length(piece_index: u32, torrent: &Torrent) -> u32 {
 }
 
 fn reserve_space(file: &mut File, size_in_bytes: u64) -> Result<()> {
-    let mut file: BufWriter<&File> = BufWriter::new(file);
-    if size_in_bytes > DEFAULT_BLOCK_SIZE as u64 {
-        let blocks_count: u64 = size_in_bytes / DEFAULT_BLOCK_SIZE as u64;
-        let residue: u64 = size_in_bytes % DEFAULT_BLOCK_SIZE as u64;
-        for _ in 0..blocks_count {
-            let bytes = vec![0; DEFAULT_BLOCK_SIZE as usize];
-            file.write_all(&bytes)
-                .map_err(|err| Error::FileError(err))?;
-        }
-        if residue > 0 {
-            let bytes = vec![0; residue as usize];
-            file.write_all(&bytes)
-                .map_err(|err| Error::FileError(err))?;
-        }
-    } else {
-        let bytes = vec![0; size_in_bytes as usize];
-        file.write_all(&bytes)
-            .map_err(|err| Error::FileError(err))?;
-    }
-    file.flush().map_err(|err| Error::FileError(err))
+    let r = vec![0u8; size_in_bytes as usize];
+    file.write_all(&r).unwrap();
+    file.flush().unwrap();
+    Ok(())
+    // let mut file: BufWriter<&File> = BufWriter::new(file);
+    // if size_in_bytes > DEFAULT_BLOCK_SIZE as u64 {
+    //     let blocks_count: u64 = size_in_bytes / DEFAULT_BLOCK_SIZE as u64;
+    //     let residue: u64 = size_in_bytes % DEFAULT_BLOCK_SIZE as u64;
+    //     for _ in 0..blocks_count {
+    //         let bytes = vec![0; DEFAULT_BLOCK_SIZE as usize];
+    //         file.write_all(&bytes)
+    //             .map_err(|err| Error::FileError(err))?;
+    //     }
+    //     if residue > 0 {
+    //         let bytes = vec![0; residue as usize];
+    //         file.write_all(&bytes)
+    //             .map_err(|err| Error::FileError(err))?;
+    //     }
+    // } else {
+    //     let bytes = vec![0; size_in_bytes as usize];
+    //     file.write_all(&bytes)
+    //         .map_err(|err| Error::FileError(err))?;
+    // }
+    // file.flush().map_err(|err| Error::FileError(err))
 }
