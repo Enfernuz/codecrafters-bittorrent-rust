@@ -123,76 +123,7 @@ fn main() -> Result<()> {
         let out_file_path = &args[3];
         let torrent_file_path = &args[4];
 
-        let torrent = parse_torrent_from_file(&torrent_file_path)?;
-        let pieces: Box<[Piece]> = get_pieces(&torrent);
-
-        let sum: u32 = pieces.iter().map(|p| p.length).sum();
-        println!(
-            "Torrent length: {}, pieces sum: {}",
-            torrent.get_length(),
-            sum
-        );
-
-        let peer_addresses = get_peers(&torrent).unwrap();
-
-        let mut file = fs::File::create(out_file_path).map_err(|err| Error::FileError(err))?;
-        reserve_space(&mut file, torrent.get_length())?;
-
-        for p in pieces.as_ref() {
-            println!("Piece #{}: pos={}, length = {}", p.index, p.pos, p.length);
-        }
-
-        let chunk_size = pieces.len() / peer_addresses.len();
-        let mut handles = Vec::new();
-        // Convert `Box<[Piece]>` into `Vec<Piece>` to consume it
-        let mut pieces_vec: Vec<Piece> = pieces.into_vec();
-        println!("Pieces overall: {}", pieces_vec.len());
-
-        let file_shared: Arc<Mutex<File>> = Arc::new(Mutex::new(file));
-        for (i, peer_addr) in peer_addresses.as_ref().iter().enumerate() {
-            let job_size: usize = if i == peer_addresses.len() - 1 {
-                pieces_vec.len()
-            } else {
-                chunk_size
-            };
-            let chunk: Vec<Piece> = pieces_vec.drain(..job_size).collect();
-
-            let chunk_boxed: Box<[Piece]> = chunk.into_boxed_slice();
-            let file_clone = Arc::clone(&file_shared);
-            let h = *torrent.get_info_hash().as_ref();
-            let addr = peer_addr.clone();
-            println!("Peer {} received {} pieces job.", &addr, chunk_boxed.len());
-            let handle = thread::spawn(move || {
-                let mut peer = Peer::new(addr).unwrap();
-                let handshake_message = HandshakeMessage::new(&Rc::new(h), &Rc::new(PEER_ID_BYTES));
-                let handshake_response: HandshakeMessage =
-                    peer.handshake(&handshake_message).unwrap();
-                println!(
-                    "Received handshake from {}: {}",
-                    &peer.get_address(),
-                    &handshake_response
-                );
-                // Handshake end
-                peer.receive_bitfield().unwrap();
-                peer.send_interested().unwrap();
-                peer.receive_unchoke().unwrap();
-                for piece in chunk_boxed {
-                    let data = download_piece(&mut peer, &piece).unwrap();
-                    let mut file = file_clone.lock().unwrap();
-
-                    file.write_all_at(&data, piece.pos).unwrap();
-                    file.flush().unwrap();
-                }
-            });
-            handles.push(handle);
-        }
-
-        // Join all threads
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
-        return Ok(());
+        download(torrent_file_path, out_file_path)
     } else {
         eprintln!("unknown command: {}", args[1]);
         return Err(Error::Unknown);
@@ -263,67 +194,77 @@ fn get_pieces(torrent: &Torrent) -> Box<[Piece]> {
 }
 
 fn download(torrent_file_path: &str, out_file_path: &str) -> Result<()> {
-    todo!();
-    // let torrent: Torrent = parse_torrent_from_file(torrent_file_path)?;
-    // let tracker_response: TrackerResponse = tracker::get(
-    //     /* torrent= */ &torrent,
-    //     /* peer_id= */ PEER_ID,
-    //     /* port= */ 6881,
-    //     /* uploaded= */ 0,
-    //     /* downloaded= */ 0,
-    //     /* left= */ torrent.get_length(),
-    // )?;
-    // match tracker_response {
-    //     TrackerResponse::Ok { interval: _, peers } => {
-    //         for peer in peers.as_ref() {
-    //             println!("Found a peer: {peer}");
-    //         }
+    let torrent = parse_torrent_from_file(&torrent_file_path)?;
+    let pieces: Box<[Piece]> = get_pieces(&torrent);
 
-    //         let mut file =
-    //             fs::File::create(out_file_path).map_err(|err| Error::FileError(err))?;
-    //         reserve_space(&mut BufWriter::new(file), torrent.get_length())?;
-    //         // TODO
+    let sum: u32 = pieces.iter().map(|p| p.length).sum();
+    println!(
+        "Torrent length: {}, pieces sum: {}",
+        torrent.get_length(),
+        sum
+    );
 
-    //         let peer_addr = &peers[0];
-    //         let mut peer = Peer::new(peer_addr)?;
-    //         let handshake_message =
-    //             HandshakeMessage::new(torrent.get_info_hash(), &Rc::new(PEER_ID_BYTES));
-    //         let handshake_response: HandshakeMessage = peer.handshake(&handshake_message)?;
-    //         println!(
-    //             "Received handshake from {peer_addr}: {}",
-    //             &handshake_response
-    //         );
-    //         // Handshake end
-    //         peer.receive_bitfield()?;
-    //         peer.send_interested()?;
-    //         peer.receive_unchoke()?;
-    //         let mut begin: u32 = 0;
-    //         let mut left: u32 = get_actual_piece_length(piece_index, &torrent);
-    //         let mut file = BufWriter::new(
-    //             fs::File::create(out_file_path).map_err(|err| Error::FileError(err))?,
-    //         );
-    //         while left > 0 {
-    //             let block_size: u32 = if left > DEFAULT_BLOCK_SIZE {
-    //                 DEFAULT_BLOCK_SIZE
-    //             } else {
-    //                 left
-    //             };
-    //             println!("[Peer @{peer_addr}] Attempting to download a block of {block_size} bytes for piece #{piece_index} (left to download: {left} bytes).");
-    //             let block = peer.get_piece_block(piece_index, begin, block_size)?;
-    //             file.write_all(&block)
-    //                 .map_err(|err| Error::FileError(err))?;
-    //             println!("[Peer @{peer_addr}] Downloaded a block of {block_size} bytes for piece #{piece_index}.");
-    //             begin += block_size;
-    //             left -= block_size;
-    //         }
-    //         file.flush().map_err(|err| Error::FileError(err))?;
-    //     }
-    //     TrackerResponse::Failure(reason) => Err(Error::TrackerFailureInResponse {
-    //         failure_reason: reason,
-    //     })?,
-    // }
+    let peer_addresses = get_peers(&torrent).unwrap();
 
-    // Ok(())
+    let mut file = fs::File::create(out_file_path).map_err(|err| Error::FileError(err))?;
+    reserve_space(&mut file, torrent.get_length())?;
+
+    for p in pieces.as_ref() {
+        println!("Piece #{}: pos={}, length = {}", p.index, p.pos, p.length);
+    }
+
+    let mut handles = Vec::new();
+    // Convert `Box<[Piece]>` into `Vec<Piece>` to consume it
+    let pieces_shared: Arc<Mutex<Vec<Piece>>> = Arc::new(Mutex::new(pieces.into_vec()));
+    let file_shared: Arc<Mutex<File>> = Arc::new(Mutex::new(file));
+    let info_hash: [u8; 20] = *torrent.get_info_hash().as_ref();
+    for peer_addr in peer_addresses.as_ref() {
+        let file_shared_clone = Arc::clone(&file_shared);
+        let pieces_shared_clone = Arc::clone(&pieces_shared);
+
+        let addr = peer_addr.clone();
+        // println!("Peer {} received {} pieces job.", &addr, chunk_boxed.len());
+        let handle = thread::spawn(move || {
+            let mut peer = Peer::new(addr).unwrap();
+            let handshake_message =
+                HandshakeMessage::new(&Rc::new(info_hash), &Rc::new(PEER_ID_BYTES));
+            let handshake_response: HandshakeMessage = peer.handshake(&handshake_message).unwrap();
+            println!(
+                "Received handshake from {}: {}",
+                &peer.get_address(),
+                &handshake_response
+            );
+            // Handshake end
+            peer.receive_bitfield().unwrap();
+            peer.send_interested().unwrap();
+            peer.receive_unchoke().unwrap();
+
+            loop {
+                let maybe_piece = {
+                    let mut pieces_vec_guard = pieces_shared_clone.lock().unwrap();
+                    pieces_vec_guard.pop()
+                };
+
+                if let Some(piece) = maybe_piece {
+                    let data = download_piece(&mut peer, &piece).unwrap();
+                    let mut file = file_shared_clone.lock().unwrap();
+
+                    file.write_all_at(&data, piece.pos).unwrap();
+                    file.flush().unwrap();
+                } else {
+                    break;
+                }
+            }
+        });
+        handles.push(handle);
+    }
+
+    // Join all threads
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    Ok(())
 }
 
 pub fn get_peers(torrent: &Torrent) -> Result<Box<[String]>> {
@@ -409,28 +350,24 @@ fn get_actual_piece_length(piece_index: u32, torrent: &Torrent) -> u32 {
 }
 
 fn reserve_space(file: &mut File, size_in_bytes: u64) -> Result<()> {
-    let r = vec![0u8; size_in_bytes as usize];
-    file.write_all(&r).unwrap();
-    file.flush().unwrap();
-    Ok(())
-    // let mut file: BufWriter<&File> = BufWriter::new(file);
-    // if size_in_bytes > DEFAULT_BLOCK_SIZE as u64 {
-    //     let blocks_count: u64 = size_in_bytes / DEFAULT_BLOCK_SIZE as u64;
-    //     let residue: u64 = size_in_bytes % DEFAULT_BLOCK_SIZE as u64;
-    //     for _ in 0..blocks_count {
-    //         let bytes = vec![0; DEFAULT_BLOCK_SIZE as usize];
-    //         file.write_all(&bytes)
-    //             .map_err(|err| Error::FileError(err))?;
-    //     }
-    //     if residue > 0 {
-    //         let bytes = vec![0; residue as usize];
-    //         file.write_all(&bytes)
-    //             .map_err(|err| Error::FileError(err))?;
-    //     }
-    // } else {
-    //     let bytes = vec![0; size_in_bytes as usize];
-    //     file.write_all(&bytes)
-    //         .map_err(|err| Error::FileError(err))?;
-    // }
-    // file.flush().map_err(|err| Error::FileError(err))
+    let mut file: BufWriter<&File> = BufWriter::new(file);
+    if size_in_bytes > DEFAULT_BLOCK_SIZE as u64 {
+        let blocks_count: u64 = size_in_bytes / DEFAULT_BLOCK_SIZE as u64;
+        let residue: u64 = size_in_bytes % DEFAULT_BLOCK_SIZE as u64;
+        for _ in 0..blocks_count {
+            let bytes = vec![0u8; DEFAULT_BLOCK_SIZE as usize];
+            file.write_all(&bytes)
+                .map_err(|err| Error::FileError(err))?;
+        }
+        if residue > 0 {
+            let bytes = vec![0u8; residue as usize];
+            file.write_all(&bytes)
+                .map_err(|err| Error::FileError(err))?;
+        }
+    } else {
+        let bytes = vec![0u8; size_in_bytes as usize];
+        file.write_all(&bytes)
+            .map_err(|err| Error::FileError(err))?;
+    }
+    file.flush().map_err(|err| Error::FileError(err))
 }
