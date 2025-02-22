@@ -6,10 +6,9 @@ mod types;
 use core::str;
 use sha1::{Digest, Sha1};
 use std::{
-    cell::RefCell,
     env,
     fs::{self, File},
-    io::{BufWriter, Read, Seek, Write},
+    io::{BufWriter, Write},
     os::unix::fs::FileExt,
     rc::Rc,
     sync::{Arc, Mutex},
