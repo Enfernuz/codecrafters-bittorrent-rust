@@ -1,7 +1,8 @@
-use thiserror::Error;
-
 use crate::bencode::decoders;
 use crate::torrent::Torrent;
+
+use crate::error::Error;
+use crate::error::Result;
 
 pub enum TrackerResponse {
     Ok { interval: u32, peers: Box<[String]> },
@@ -18,16 +19,6 @@ impl TrackerResponse {
     }
 }
 
-#[derive(Error, Debug)]
-pub enum TrackerError {
-    #[error("HTTP Error")]
-    Http(#[from] reqwest::Error),
-    #[error("Decode Error")]
-    Decode(#[from] decoders::error::DecodeError),
-    #[error("Invalid Response: {0}")]
-    InvalidResponse(String),
-}
-
 pub fn get(
     torrent: &Torrent,
     peer_id: &str,
@@ -35,50 +26,40 @@ pub fn get(
     uploaded: u64,
     downloaded: u64,
     left: u64,
-) -> Result<TrackerResponse, TrackerError> {
+) -> Result<TrackerResponse> {
     let urlencoded_info_hash: String = urlencode_bytes(torrent.get_info_hash().as_ref());
     let tracker_url: &str = torrent.get_announce();
     let url = format!("{tracker_url}?info_hash={urlencoded_info_hash}&peer_id={peer_id}&port={port}&uploaded={uploaded}&downloaded={downloaded}&left={left}&compact=1");
-    let res = reqwest::blocking::get(url)?;
-    let (body, _) = decoders::decode(&res.bytes()?.as_ref())?;
-    let body_dict = body.as_dict().ok_or_else(|| {
-        TrackerError::InvalidResponse("Could not find the 'info' key.".to_owned())
-    })?;
+    let res = reqwest::blocking::get(url).map_err(|err| Error::TrackerHttpError(err))?;
+    let bytes = res.bytes().map_err(|err| Error::TrackerHttpError(err))?;
+    let (body, _) = decoders::decode(bytes.as_ref()).map_err(|err| Error::DecodeError(err))?;
+    let body_dict = body
+        .as_dict()
+        .ok_or_else(|| Error::KeyNotFoundInTrackerResponse { key: "info".into() })?;
     if body_dict.contains_key("failure reason") {
         let reason = body_dict
             .get("failure reason")
-            .ok_or_else(|| {
-                TrackerError::InvalidResponse("Could not find the 'failure reason' key.".to_owned())
+            .ok_or_else(|| Error::KeyNotFoundInTrackerResponse {
+                key: "failure reason".into(),
             })?
             .as_str()
-            .ok_or_else(|| {
-                TrackerError::InvalidResponse(
-                    "Could not convert the value of the 'failure reason' key into a UTF-8 string."
-                        .to_owned(),
-                )
-            })?;
+            .ok_or_else(|| Error::TrackerFailureReasonIsNotUtf8)?;
         return Ok(TrackerResponse::failure(reason));
     }
     let interval = body_dict
         .get("interval")
-        .ok_or_else(|| {
-            TrackerError::InvalidResponse("Could not find the 'interval' key.".to_owned())
+        .ok_or_else(|| Error::KeyNotFoundInTrackerResponse {
+            key: "interval".into(),
         })?
         .as_i64()
-        .ok_or_else(|| {
-            TrackerError::InvalidResponse(
-                "Could not convert the value of the 'interval' key into i64".to_owned(),
-            )
-        })? as u32;
+        .ok_or_else(|| Error::TrackerIntervalIsNotInteger)? as u32;
     let peers = body_dict
         .get("peers")
-        .ok_or_else(|| TrackerError::InvalidResponse("Could not find the 'peers' key.".to_owned()))?
-        .as_byte_string()
-        .ok_or_else(|| {
-            TrackerError::InvalidResponse(
-                "Could not convert the value of the 'interval' key into a byte string".to_owned(),
-            )
+        .ok_or_else(|| Error::KeyNotFoundInTrackerResponse {
+            key: "peers".into(),
         })?
+        .as_byte_string()
+        .ok_or_else(|| Error::TrackerIntervalIsNotByteString)?
         .get_data()
         .chunks_exact(6)
         .map(|chunk| {

@@ -23,7 +23,7 @@ pub struct Torrent {
     announce: String,
     length: u64,
     info_hash: Rc<[u8; 20]>,
-    piece_length: u64,
+    piece_length: u32,
     pieces: Rc<[[u8; 20]]>,
 }
 
@@ -40,7 +40,7 @@ impl Torrent {
         &self.info_hash
     }
 
-    pub fn get_piece_length(&self) -> u64 {
+    pub fn get_piece_length(&self) -> u32 {
         self.piece_length
     }
 
@@ -107,7 +107,7 @@ impl TryFrom<&DataType> for Torrent {
                 let mut hasher = Sha1::new();
                 hasher.update(info_bencoded);
                 let sha1_hash = hasher.finalize();
-                let piece_length: u64 = info_as_dict
+                let piece_length: u32 = info_as_dict
                     .get("piece length")
                     .ok_or_else(|| {
                         TorrentParseError::InvalidMetaInfo(
@@ -120,7 +120,7 @@ impl TryFrom<&DataType> for Torrent {
                             "Could not convert the value of the 'piece length' key into i64."
                                 .to_owned(),
                         )
-                    })? as u64;
+                    })? as u32;
                 let pieces_byte_string: &ByteString = info_as_dict
                     .get("pieces")
                     .ok_or_else(|| {

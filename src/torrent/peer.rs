@@ -28,6 +28,10 @@ impl Peer {
 
 // region:      --- API
 impl Peer {
+    pub fn get_address(&self) -> String {
+        self.socket.peer_addr().unwrap().to_string()
+    }
+
     pub fn handshake(&mut self, message: &HandshakeMessage) -> Result<HandshakeMessage> {
         let bytes: [u8; 68] = message.into();
         self.socket
