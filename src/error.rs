@@ -33,7 +33,7 @@ pub enum Error {
         expected_length: u8,
     },
     SocketError(io::Error),
-    TorrentParseError(torrent::TorrentParseError),
+    TorrentParseError(String),
     Unknown,
     UnrecognizedMessageTag(u8),
 }
