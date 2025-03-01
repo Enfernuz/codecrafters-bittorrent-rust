@@ -1,12 +1,14 @@
 mod bencode;
+mod cli;
 mod error;
 mod torrent;
 mod types;
 
+use clap::Parser;
+use cli::{Cli, CliCommand};
 use core::str;
 use sha1::{Digest, Sha1};
 use std::{
-    env,
     fs::{self, File},
     io::{BufWriter, Write},
     os::unix::fs::FileExt,
@@ -31,98 +33,98 @@ const BLOCK_SIZE: usize = 16 * 1024;
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
 fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
-    let command = &args[1];
+    let cli: Cli = Cli::parse();
+    match cli.command {
+        CliCommand::Decode { input } => {
+            let (decoded, _) =
+                decoders::decode(input.as_bytes()).map_err(|err| Error::DecodeError(err))?;
+            let json: serde_json::Value = decoded.into();
+            println!("{}", &json);
+            return Ok(());
+        }
+        CliCommand::Download {
+            torrent_file,
+            output,
+        } => {
+            return download(&torrent_file, &output);
+        }
+        CliCommand::DownloadPiece {
+            torrent_file,
+            piece_index,
+            output,
+        } => {
+            let torrent: Torrent = parse_torrent_from_file(&torrent_file)?;
+            let pieces: Arc<[Piece]> = torrent.get_pieces();
 
-    if command == "decode" {
-        let encoded_value = &args[2];
-        let (decoded, _) =
-            decoders::decode(encoded_value.as_bytes()).map_err(|err| Error::DecodeError(err))?;
-        let json: serde_json::Value = decoded.into();
-        println!("{}", &json);
-        return Ok(());
-    } else if command == "info" {
-        let path = &args[2];
-        let torrent: Torrent = fs::read(path)
-            .map(|s| s.as_slice().try_into().ok().unwrap())
-            .map_err(|err| Error::FileError(err))?;
-        println!("{}", &torrent);
-        return Ok(());
-    } else if command == "peers" {
-        let path = &args[2];
-        let torrent: Torrent = fs::read(path)
-            .map(|s| s.as_slice().try_into().ok().unwrap())
-            .map_err(|err| Error::FileError(err))?;
-        let tracker_response: TrackerResponse = tracker::get(
-            /* torrent= */ &torrent,
-            /* peer_id= */ PEER_ID,
-            /* port= */ 6881,
-            /* uploaded= */ 0,
-            /* downloaded= */ 0,
-            /* left= */ torrent.get_length(),
-        )?;
+            let peers = get_peers(&torrent).unwrap();
+            let mut peer = Peer::new(&peers[0])?;
+            let handshake_message =
+                HandshakeMessage::new(&Rc::new(*torrent.get_info_hash()), &Rc::new(PEER_ID_BYTES));
+            let handshake_response: HandshakeMessage = peer.handshake(&handshake_message)?;
+            println!(
+                "Received handshake from {}: {}",
+                &peer.get_address(),
+                &handshake_response
+            );
+            // Handshake end
+            peer.receive_bitfield()?;
+            peer.send_interested()?;
+            peer.receive_unchoke()?;
 
-        match tracker_response {
-            TrackerResponse::Ok { interval: _, peers } => {
-                for peer in peers.as_ref() {
-                    println!("{}", peer);
+            let piece = download_piece(&mut peer, &pieces[piece_index as usize])?;
+            let mut out: File = fs::File::create(&output).map_err(|err| Error::FileError(err))?;
+            out.write_all(&piece).map_err(|err| Error::FileError(err))?;
+            out.flush().map_err(|err| Error::FileError(err))?;
+            return Ok(());
+        }
+        CliCommand::Handshake {
+            torrent_file,
+            address,
+        } => {
+            let torrent: Torrent = fs::read(&torrent_file)
+                .map(|s| s.as_slice().try_into())
+                .map_err(|err| Error::FileError(err))??;
+            let handshake_message =
+                HandshakeMessage::new(&Rc::new(*torrent.get_info_hash()), &Rc::new(PEER_ID_BYTES));
+            let mut peer = Peer::new(&address).ok().unwrap();
+            let response = peer.handshake(&handshake_message).ok().unwrap();
+            println!("{}", &response);
+            return Ok(());
+        }
+        CliCommand::Info { torrent_file } => {
+            let torrent: Torrent = fs::read(&torrent_file)
+                .map(|s| s.as_slice().try_into().ok().unwrap())
+                .map_err(|err| Error::FileError(err))?;
+            println!("{}", &torrent);
+            return Ok(());
+        }
+        CliCommand::Peers { torrent_file } => {
+            let torrent: Torrent = fs::read(&torrent_file)
+                .map(|s| s.as_slice().try_into().ok().unwrap())
+                .map_err(|err| Error::FileError(err))?;
+            let tracker_response: TrackerResponse = tracker::get(
+                /* torrent= */ &torrent,
+                /* peer_id= */ PEER_ID,
+                /* port= */ 6881,
+                /* uploaded= */ 0,
+                /* downloaded= */ 0,
+                /* left= */ torrent.get_length(),
+            )?;
+
+            match tracker_response {
+                TrackerResponse::Ok { interval: _, peers } => {
+                    for peer in peers.as_ref() {
+                        println!("{}", peer);
+                    }
+                    return Ok(());
                 }
-                return Ok(());
-            }
-            TrackerResponse::Failure(reason) => {
-                return Err(Error::TrackerFailureInResponse {
-                    failure_reason: reason,
-                })
+                TrackerResponse::Failure(reason) => {
+                    return Err(Error::TrackerFailureInResponse {
+                        failure_reason: reason,
+                    })
+                }
             }
         }
-    } else if command == "handshake" {
-        let path = &args[2];
-        let addr = &args[3];
-        let torrent: Torrent = fs::read(path)
-            .map(|s| s.as_slice().try_into())
-            .map_err(|err| Error::FileError(err))??;
-        let handshake_message =
-            HandshakeMessage::new(&Rc::new(*torrent.get_info_hash()), &Rc::new(PEER_ID_BYTES));
-        let mut peer = Peer::new(addr).ok().unwrap();
-        let response = peer.handshake(&handshake_message).ok().unwrap();
-        println!("{}", &response);
-        return Ok(());
-    } else if command == "download_piece" {
-        let out_file_path = &args[3];
-        let torrent_file_path = &args[4];
-        let piece_index: u32 = args[5].parse().expect("TODO: piece_index parse error");
-
-        let torrent = parse_torrent_from_file(&torrent_file_path)?;
-        let pieces = torrent.get_pieces();
-
-        let peers = get_peers(&torrent).unwrap();
-        let mut peer = Peer::new(&peers[0])?;
-        let handshake_message =
-            HandshakeMessage::new(&Rc::new(*torrent.get_info_hash()), &Rc::new(PEER_ID_BYTES));
-        let handshake_response: HandshakeMessage = peer.handshake(&handshake_message)?;
-        println!(
-            "Received handshake from {}: {}",
-            &peer.get_address(),
-            &handshake_response
-        );
-        // Handshake end
-        peer.receive_bitfield()?;
-        peer.send_interested()?;
-        peer.receive_unchoke()?;
-
-        let piece = download_piece(&mut peer, &pieces[piece_index as usize])?;
-        let mut out: File = fs::File::create(out_file_path).map_err(|err| Error::FileError(err))?;
-        out.write_all(&piece).map_err(|err| Error::FileError(err))?;
-        out.flush().map_err(|err| Error::FileError(err))?;
-        Ok(())
-    } else if command == "download" {
-        let out_file_path = &args[3];
-        let torrent_file_path = &args[4];
-
-        download(torrent_file_path, out_file_path)
-    } else {
-        eprintln!("unknown command: {}", args[1]);
-        return Err(Error::Unknown);
     }
 }
 
@@ -135,7 +137,7 @@ fn parse_torrent_from_file(path: &str) -> Result<Torrent> {
 fn download(torrent_file_path: &str, out_file_path: &str) -> Result<()> {
     let torrent = parse_torrent_from_file(&torrent_file_path)?;
 
-    let peer_addresses = get_peers(&torrent).unwrap();
+    let peer_addresses: Box<[String]> = get_peers(&torrent).unwrap();
 
     let mut file = fs::File::create(out_file_path).map_err(|err| Error::FileError(err))?;
     reserve_space(&mut file, torrent.get_length())?;
@@ -148,23 +150,20 @@ fn download(torrent_file_path: &str, out_file_path: &str) -> Result<()> {
         );
     }
 
-    let pieces = torrent.get_pieces();
-    let piece_indices: Vec<usize> = (0..pieces.len()).collect();
-    let tasks_shared = Arc::new(Mutex::new(piece_indices));
-
-    let mut handles = Vec::new();
-    // Convert `Box<[Piece]>` into `Vec<Piece>` to consume it
+    let pieces_shared: Arc<[Piece]> = torrent.get_pieces();
+    let piece_indices_shared = Arc::new(Mutex::new(Vec::from_iter(0..pieces_shared.len())));
     let file_shared: Arc<Mutex<File>> = Arc::new(Mutex::new(file));
     let info_hash: [u8; 20] = *torrent.get_info_hash();
+    let mut handles: Vec<thread::JoinHandle<()>> = Vec::new();
     for peer_addr in peer_addresses.as_ref() {
-        let file_shared_clone = Arc::clone(&file_shared);
-        let pieces_shared_clone = Arc::clone(&pieces);
-        let tasks_shared_clone = Arc::clone(&tasks_shared);
+        let file_shared: Arc<Mutex<File>> = Arc::clone(&file_shared);
+        let pieces_shared: Arc<[Piece]> = Arc::clone(&pieces_shared);
+        let piece_indices_shared: Arc<Mutex<Vec<usize>>> = Arc::clone(&piece_indices_shared);
 
-        let addr = peer_addr.clone();
+        let peer_addr: String = peer_addr.clone();
         // println!("Peer {} received {} pieces job.", &addr, chunk_boxed.len());
         let handle = thread::spawn(move || {
-            let mut peer = Peer::new(addr).unwrap();
+            let mut peer = Peer::new(peer_addr).unwrap();
             let handshake_message =
                 HandshakeMessage::new(&Rc::new(info_hash), &Rc::new(PEER_ID_BYTES));
             let handshake_response: HandshakeMessage = peer.handshake(&handshake_message).unwrap();
@@ -180,14 +179,14 @@ fn download(torrent_file_path: &str, out_file_path: &str) -> Result<()> {
 
             loop {
                 let maybe_piece_index = {
-                    let mut tasks_guard = tasks_shared_clone.lock().unwrap();
-                    tasks_guard.pop()
+                    let mut piece_indices_guard = piece_indices_shared.lock().unwrap();
+                    piece_indices_guard.pop()
                 };
 
                 if let Some(index) = maybe_piece_index {
-                    let piece: &Piece = &pieces_shared_clone[index];
-                    let data = download_piece(&mut peer, piece).unwrap();
-                    let mut file = file_shared_clone.lock().unwrap();
+                    let piece: &Piece = &pieces_shared[index];
+                    let data: Box<[u8]> = download_piece(&mut peer, piece).unwrap();
+                    let mut file = file_shared.lock().unwrap();
 
                     file.write_all_at(&data, piece.get_begin()).unwrap();
                     file.flush().unwrap();
