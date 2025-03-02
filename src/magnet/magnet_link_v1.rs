@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use regex::Regex;
-
 use crate::error::Error;
 use crate::error::Result;
 
@@ -25,15 +23,6 @@ impl MagnetLinkV1 {
             serde_urlencoded::from_str::<HashMap<String, String>>(params_str)
                 .map_err(|err| Error::InvalidMagnetLink)?;
 
-        // let re = Regex::new(r"([a-z0-9]+)=([^&]+)").unwrap();
-        // let mut params = HashMap::new();
-
-        // for cap in re.captures_iter(input) {
-        //     let key = &cap[1];
-        //     let value = &cap[2];
-        //     params.insert(key.to_string(), value.to_string());
-        // }
-
         let hash: String = params
             .get("xt")
             .ok_or_else(|| Error::InvalidMagnetLink)?
@@ -48,9 +37,6 @@ impl MagnetLinkV1 {
             .get("tr")
             .ok_or_else(|| Error::InvalidMagnetLink)?
             .to_owned();
-
-        // let kek = "kek";
-        // serde_urlencoded::from_str(input)
 
         Ok(MagnetLinkV1 {
             info_hash: hash,
