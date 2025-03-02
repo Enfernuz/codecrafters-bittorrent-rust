@@ -21,7 +21,7 @@ const PEER_ID_BYTES: [u8; 20] = *b"12345678901234567890";
 const BLOCK_SIZE: usize = 16 * 1024;
 
 #[derive(Parser, Debug)]
-#[command(name = "torrent-cli")]
+#[command(name = "codecrafters-bittorrent")]
 #[command(about = "A CLI for managing torrent downloads", long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
