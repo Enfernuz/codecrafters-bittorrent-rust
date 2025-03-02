@@ -28,6 +28,7 @@ pub enum Error {
         minimum_length: u32,
         actual_length: u32,
     },
+    InvalidMagnetLink, // TODO
     InvalidPeerIdLength {
         peer_id: String,
         expected_length: u8,

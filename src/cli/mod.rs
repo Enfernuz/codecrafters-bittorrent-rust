@@ -13,6 +13,7 @@ use sha1::{Digest, Sha1};
 use crate::{
     decoders,
     error::{Error, Result},
+    magnet::magnet_link_v1::MagnetLinkV1,
     tracker, HandshakeMessage, Peer, Piece, Torrent, TrackerResponse,
 };
 
@@ -71,6 +72,12 @@ pub enum CliCommand {
         /// The path to a .torrent file (positional argument)
         torrent_file: String,
     },
+    /// Parse a Magnet link
+    #[command(name = "magnet_parse")]
+    MagnetParse {
+        /// The Magnet link to parse
+        magnet_url: String,
+    },
     /// Print the list of peers for a .torrent file
     Peers {
         /// The path to a .torrent file (positional argument)
@@ -96,6 +103,7 @@ impl CliCommand {
                 address,
             } => handle_handshake(torrent_file, address),
             CliCommand::Info { torrent_file } => handle_info(torrent_file),
+            CliCommand::MagnetParse { magnet_url } => handle_magnet_parse(magnet_url),
             CliCommand::Peers { torrent_file } => handle_peers(torrent_file),
         }
     }
@@ -229,6 +237,16 @@ fn handle_info(torrent_file_path: &str) -> Result<()> {
         .map(|s| s.as_slice().try_into().ok().unwrap())
         .map_err(|err| Error::FileError(err))?;
     println!("{}", &torrent);
+    Ok(())
+}
+
+fn handle_magnet_parse(magnet_url: &str) -> Result<()> {
+    let link: MagnetLinkV1 = MagnetLinkV1::parse(magnet_url)?;
+    println!(
+        "Tracker URL: {}\nInfo Hash: {}",
+        link.get_tracker_url(),
+        link.get_info_hash()
+    );
     Ok(())
 }
 

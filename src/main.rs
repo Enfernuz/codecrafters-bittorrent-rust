@@ -1,6 +1,7 @@
 mod bencode;
 mod cli;
 mod error;
+mod magnet;
 mod torrent;
 mod types;
 
