@@ -72,6 +72,12 @@ pub enum CliCommand {
         /// The path to a .torrent file (positional argument)
         torrent_file: String,
     },
+    /// Parse a Magnet link and perform a handshake with a peer
+    #[command(name = "magnet_handshake")]
+    MagnetHandshake {
+        /// The Magnet link to parse
+        magnet_url: String,
+    },
     /// Parse a Magnet link
     #[command(name = "magnet_parse")]
     MagnetParse {
@@ -103,6 +109,7 @@ impl CliCommand {
                 address,
             } => handle_handshake(torrent_file, address),
             CliCommand::Info { torrent_file } => handle_info(torrent_file),
+            CliCommand::MagnetHandshake { magnet_url } => handle_magnet_handshake(magnet_url),
             CliCommand::MagnetParse { magnet_url } => handle_magnet_parse(magnet_url),
             CliCommand::Peers { torrent_file } => handle_peers(torrent_file),
         }
@@ -240,6 +247,38 @@ fn handle_info(torrent_file_path: &str) -> Result<()> {
     Ok(())
 }
 
+fn handle_magnet_handshake(magnet_url: &str) -> Result<()> {
+    let link: MagnetLinkV1 = MagnetLinkV1::parse(magnet_url)?;
+    let hash_str_bytes = hex::decode(link.get_info_hash().as_bytes()).unwrap();
+    let info_hash: [u8; 20] = hash_str_bytes.as_slice().try_into().unwrap();
+    let tracker_response: TrackerResponse = tracker::get(
+        /* tracker_url= */ link.get_tracker_url(),
+        /* info_hash= */ &info_hash,
+        /* peer_id= */ PEER_ID,
+        /* port= */ 6881,
+        /* uploaded= */ 0,
+        /* downloaded= */ 0,
+        /* left= */ 12345,
+    )?;
+    match tracker_response {
+        TrackerResponse::Ok { interval: _, peers } => {
+            let peer_address = peers.as_ref().get(0).unwrap();
+            let handshake_message =
+                HandshakeMessage::new_magnet(&Rc::new(info_hash), &Rc::new(PEER_ID_BYTES));
+            let mut peer = Peer::new(peer_address).ok().unwrap();
+            let response = peer.handshake(&handshake_message).ok().unwrap();
+            println!("{}", &response);
+            return Ok(());
+        }
+        TrackerResponse::Failure(reason) => {
+            return Err(Error::TrackerFailureInResponse {
+                failure_reason: reason,
+            })
+        }
+    }
+    todo!();
+}
+
 fn handle_magnet_parse(magnet_url: &str) -> Result<()> {
     let link: MagnetLinkV1 = MagnetLinkV1::parse(magnet_url)?;
     println!(
@@ -255,7 +294,8 @@ fn handle_peers(torrent_file_path: &str) -> Result<()> {
         .map(|s| s.as_slice().try_into().ok().unwrap())
         .map_err(|err| Error::FileError(err))?;
     let tracker_response: TrackerResponse = tracker::get(
-        /* torrent= */ &torrent,
+        /* tracker_url= */ torrent.get_announce(),
+        /* info_hash= */ torrent.get_info_hash(),
         /* peer_id= */ PEER_ID,
         /* port= */ 6881,
         /* uploaded= */ 0,
@@ -280,7 +320,8 @@ fn handle_peers(torrent_file_path: &str) -> Result<()> {
 
 fn get_peers(torrent: &Torrent) -> Result<Box<[String]>> {
     let tracker_response: TrackerResponse = tracker::get(
-        /* torrent= */ &torrent,
+        /* tracker_url= */ torrent.get_announce(),
+        /* info_hash= */ torrent.get_info_hash(),
         /* peer_id= */ PEER_ID,
         /* port= */ 6881,
         /* uploaded= */ 0,

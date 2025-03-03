@@ -20,15 +20,15 @@ impl TrackerResponse {
 }
 
 pub fn get(
-    torrent: &Torrent,
+    tracker_url: &str,
+    info_hash: &[u8; 20],
     peer_id: &str,
     port: u16,
     uploaded: u64,
     downloaded: u64,
     left: u64,
 ) -> Result<TrackerResponse> {
-    let urlencoded_info_hash: String = urlencode_bytes(torrent.get_info_hash().as_ref());
-    let tracker_url: &str = torrent.get_announce();
+    let urlencoded_info_hash: String = urlencode_bytes(info_hash);
     let url = format!("{tracker_url}?info_hash={urlencoded_info_hash}&peer_id={peer_id}&port={port}&uploaded={uploaded}&downloaded={downloaded}&left={left}&compact=1");
     let res = reqwest::blocking::get(url).map_err(|err| Error::TrackerHttpError(err))?;
     let bytes = res.bytes().map_err(|err| Error::TrackerHttpError(err))?;
