@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs::{self, File},
     io::{BufWriter, Write},
     os::unix::fs::FileExt,
@@ -14,7 +15,9 @@ use crate::{
     decoders,
     error::{Error, Result},
     magnet::magnet_link_v1::MagnetLinkV1,
-    tracker, HandshakeMessage, Peer, Piece, Torrent, TrackerResponse,
+    tracker,
+    types::DataType,
+    HandshakeMessage, Peer, Piece, Torrent, TrackerResponse,
 };
 
 const PEER_ID: &str = "12345678901234567890";
@@ -267,6 +270,15 @@ fn handle_magnet_handshake(magnet_url: &str) -> Result<()> {
                 HandshakeMessage::new_magnet(&Rc::new(info_hash), &Rc::new(PEER_ID_BYTES));
             let mut peer = Peer::new(peer_address).ok().unwrap();
             let response = peer.handshake(&handshake_message).ok().unwrap();
+            // TODO: send bitfield
+            peer.receive_bitfield()?;
+            if response.is_extension_supported() {
+                let mut m_dict: BTreeMap<String, DataType> = BTreeMap::new();
+                m_dict.insert("ut_metadata".to_owned(), DataType::Integer(123));
+                let mut payload_dict: BTreeMap<String, DataType> = BTreeMap::new();
+                payload_dict.insert("m".to_owned(), DataType::Dict(m_dict));
+                let extended_handshake_response = peer.extended_handshake(payload_dict)?;
+            }
             println!("{}", &response);
             return Ok(());
         }

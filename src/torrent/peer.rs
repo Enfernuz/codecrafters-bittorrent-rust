@@ -1,13 +1,18 @@
 use std::{
+    collections::BTreeMap,
     io::{Read, Write},
     net::{TcpStream, ToSocketAddrs},
     time::Duration,
 };
 
-use crate::error::Error;
 use crate::error::Result;
 use crate::torrent::HandshakeMessage;
 use crate::torrent::Message;
+use crate::{
+    bencode::{self, encoders},
+    error::Error,
+    types::DataType,
+};
 
 // region:      --- Peer
 pub struct Peer {
@@ -43,6 +48,32 @@ impl Peer {
             .map_err(|err| Error::SocketError(err))?;
 
         Ok((&buf).into())
+    }
+
+    pub fn extended_handshake(
+        &mut self,
+        payload_dict: BTreeMap<String, DataType>,
+    ) -> Result<Message> {
+        let payload: DataType = DataType::Dict(payload_dict);
+        let handshake_message = Message::extended(0, encoders::bencode(&payload).as_ref());
+        let bytes: Box<[u8]> = (&handshake_message).into();
+        self.socket
+            .write_all(&bytes)
+            .map_err(|err| Error::SocketError(err))?;
+
+        let mut length_buf = [0u8; 4];
+        self.socket
+            .read_exact(&mut length_buf)
+            .map_err(|err| Error::SocketError(err))?;
+        let length: u32 = u32::from_be_bytes(length_buf);
+        let mut buf = vec![0u8; length as usize];
+        self.socket
+            .read_exact(&mut buf)
+            .map_err(|err| Error::SocketError(err))?;
+
+        let combined: &[u8] = &[length_buf.as_slice(), buf.as_slice()].concat();
+        let msg: Message = Message::try_from(combined)?;
+        Ok(msg)
     }
 
     pub fn receive_bitfield(&mut self) -> Result<Message> {

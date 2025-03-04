@@ -75,6 +75,13 @@ impl Message {
         )
     }
 
+    pub fn extended(extended_message_id: u8, data: &[u8]) -> Self {
+        Self::new(
+            MessageTag::Extended,
+            [&[extended_message_id], data].concat().into(),
+        )
+    }
+
     fn new(tag: MessageTag, payload: Box<[u8]>) -> Self {
         Message { tag, payload }
     }
@@ -140,6 +147,13 @@ impl TryFrom<&[u8]> for Message {
                 // println!("Writing block size of {}", block.len());
                 Ok(Message::piece(index, begin, block))
             }
+            MessageTag::Extended => {
+                let extended_message_id: u8 = slice[5];
+                Ok(Message::extended(
+                    extended_message_id,
+                    &slice[6..6 + (message_len as usize - 2)],
+                ))
+            }
             other => Err(Error::MessageParsingNotImplemented(other))?,
         }
     }
@@ -187,6 +201,7 @@ pub enum MessageTag {
     Piece,
     Cancel,
     Port,
+    Extended,
 }
 
 // region:      --- Traits impl
@@ -205,6 +220,7 @@ impl TryFrom<u8> for MessageTag {
             7 => Ok(Self::Piece),
             8 => Ok(Self::Cancel),
             9 => Ok(Self::Port),
+            20 => Ok(Self::Extended),
             other => Err(Error::UnrecognizedMessageTag(other)),
         }
     }
@@ -223,6 +239,7 @@ impl Into<u8> for &MessageTag {
             MessageTag::Piece => 7,
             MessageTag::Cancel => 8,
             MessageTag::Port => 9,
+            MessageTag::Extended => 20,
         }
     }
 }
