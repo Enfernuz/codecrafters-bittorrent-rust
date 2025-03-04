@@ -278,8 +278,33 @@ fn handle_magnet_handshake(magnet_url: &str) -> Result<()> {
                 let mut payload_dict: BTreeMap<String, DataType> = BTreeMap::new();
                 payload_dict.insert("m".to_owned(), DataType::Dict(m_dict));
                 let extended_handshake_response = peer.extended_handshake(payload_dict)?;
+                let (response_data, _) =
+                    decoders::decode(&extended_handshake_response.get_payload()[1..])
+                        .map_err(|err| Error::DecodeError(err))?;
+                if let DataType::Dict(dict) = response_data {
+                    let m_dict = dict.get("m").ok_or_else(|| {
+                        Error::KeyNotFoundInExtendedHandshakeResponse { key: "m".into() }
+                    })?;
+                    if let DataType::Dict(m) = m_dict {
+                        let ut_metadata = m.get("ut_metadata").ok_or_else(|| {
+                            Error::KeyNotFoundInExtendedHandshakeResponse {
+                                key: "ut_metadata".into(),
+                            }
+                        })?;
+                        println!("{}", &response);
+                        println!(
+                            "Peer Metadata Extension ID: {}",
+                            ut_metadata
+                                .as_i64()
+                                .ok_or_else(|| Error::InvalidExtendedHandshakeResponse)?
+                        );
+                    }
+                } else {
+                    return Err(Error::InvalidExtendedHandshakeResponse);
+                }
+            } else {
+                println!("{}", &response);
             }
-            println!("{}", &response);
             return Ok(());
         }
         TrackerResponse::Failure(reason) => {

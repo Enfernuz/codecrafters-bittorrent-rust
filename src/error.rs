@@ -13,6 +13,9 @@ pub enum Error {
     KeyNotFoundInTrackerResponse {
         key: String,
     },
+    KeyNotFoundInExtendedHandshakeResponse {
+        key: String,
+    },
     TrackerIntervalIsNotInteger,
     TrackerIntervalIsNotByteString,
     TrackerFailureReasonIsNotUtf8,
@@ -28,6 +31,7 @@ pub enum Error {
         minimum_length: u32,
         actual_length: u32,
     },
+    InvalidExtendedHandshakeResponse,
     InvalidMagnetLink, // TODO
     InvalidPeerIdLength {
         peer_id: String,
